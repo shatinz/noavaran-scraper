@@ -8,6 +8,7 @@ from normalizer import (
     normalize_persian_text,
     normalize_phone,
     normalize_email,
+    clean_entity_name,
     clean_name_for_matching,
     clean_company_for_matching,
     normalize_city,
@@ -28,40 +29,61 @@ AUTO_MERGE_SCORE_THRESHOLD = 88.0
 AMBIGUOUS_SCORE_THRESHOLD = 70.0
 
 
+def merge_delimited_values(val1: Optional[str], val2: Optional[str]) -> str:
+    """Combine two semicolon-separated values without duplicates or data loss."""
+    items = []
+    seen = set()
+    for v in (val1, val2):
+        if not v:
+            continue
+        for part in re.split(r'[;\n]+', str(v)):
+            p = part.strip()
+            if p and p not in seen:
+                seen.add(p)
+                items.append(p)
+    return "; ".join(items)
+
+
 def merge_source_urls(url1: Optional[str], url2: Optional[str]) -> str:
     """Combine two semicolon-separated URL strings without duplicates or data loss."""
-    urls = []
-    seen = set()
-    for part in (url1 or "").split(";"):
-        u = part.strip()
-        if u and u not in seen:
-            seen.add(u)
-            urls.append(u)
-    for part in (url2 or "").split(";"):
-        u = part.strip()
-        if u and u not in seen:
-            seen.add(u)
-            urls.append(u)
-    return "; ".join(urls)
+    return merge_delimited_values(url1, url2)
+
+
+def choose_best_name(name1: Optional[str], name2: Optional[str]) -> str:
+    """Select the cleanest, most authoritative entity name without announcement spam."""
+    n1 = clean_entity_name(name1)
+    n2 = clean_entity_name(name2)
+    if not n1:
+        return n2
+    if not n2:
+        return n1
+    is_n1_announcement = any(k in n1 for k in ['همایش', 'گزارش', 'اطلاعیه', 'ثبت نام', 'کلاس', 'وبینار', 'جلسات', 'نتایج']) or len(n1) > 60
+    is_n2_announcement = any(k in n2 for k in ['همایش', 'گزارش', 'اطلاعیه', 'ثبت نام', 'کلاس', 'وبینار', 'جلسات', 'نتایج']) or len(n2) > 60
+    if is_n1_announcement and not is_n2_announcement:
+        return n2
+    if is_n2_announcement and not is_n1_announcement:
+        return n1
+    if n1.startswith(('مهندس', 'دکتر', 'آرشیتکت')) and not n2.startswith(('مهندس', 'دکتر', 'آرشیتکت')):
+        return n1
+    if n2.startswith(('مهندس', 'دکتر', 'آرشیتکت')) and not n1.startswith(('مهندس', 'دکتر', 'آرشیتکت')):
+        return n2
+    return n1 if len(n1) >= len(n2) else n2
 
 
 def merge_two_contacts(existing: ContactEntity, candidate: ContactEntity, merge_reason: str = "fuzzy_match") -> ContactEntity:
-    """Merge two contact entities, preserving all URLs and updating missing fields."""
-    merged_urls = merge_source_urls(existing.source_url, candidate.source_url)
+    """Merge two contact entities, preserving all URLs, phones, and emails without data loss."""
+    merged_urls = merge_delimited_values(existing.source_url, candidate.source_url)
+    merged_phones = merge_delimited_values(existing.phone, candidate.phone)
+    merged_emails = merge_delimited_values(existing.email, candidate.email)
+    merged_handles = merge_delimited_values(existing.social_handle, candidate.social_handle)
 
-    # Name: pick longer/more descriptive name
-    name = existing.name if len(existing.name.strip()) >= len(candidate.name.strip()) else candidate.name
-    # Role: pick more specific role
+    name = choose_best_name(existing.name, candidate.name)
+    company = choose_best_name(existing.company, candidate.company)
     role = existing.role or candidate.role
-    # Company: pick more descriptive company name
-    company = existing.company if len(existing.company.strip()) >= len(candidate.company.strip()) else candidate.company
     city = existing.city or candidate.city
-    phone = existing.phone or candidate.phone
-    email = existing.email or candidate.email
-    social_handle = existing.social_handle or candidate.social_handle
 
     confidence = existing.confidence
-    if merge_reason == "exact_phone" or merge_reason == "exact_email":
+    if merge_reason in ("exact_phone", "exact_email"):
         confidence = "verified"
     elif merge_reason == "high_fuzzy":
         confidence = "high_fuzzy" if existing.confidence not in ("verified", "high") else existing.confidence
@@ -75,10 +97,10 @@ def merge_two_contacts(existing: ContactEntity, candidate: ContactEntity, merge_
         role=role.strip(),
         company=company.strip(),
         city=city.strip(),
-        phone=phone.strip(),
-        email=email.strip(),
-        social_handle=social_handle.strip(),
-        source_url=merged_urls,
+        phone=merged_phones.strip(),
+        email=merged_emails.strip(),
+        social_handle=merged_handles.strip(),
+        source_url=merged_urls.strip(),
         confidence=confidence,
         last_verified=last_verified,
     )
@@ -118,12 +140,13 @@ def merge_two_projects(existing: ActiveProject, candidate: ActiveProject) -> Act
 
     # Scale/scope: pick longer/richer
     scale = existing.scale_scope if len(existing.scale_scope) >= len(candidate.scale_scope) else candidate.scale_scope
-    contact_info = existing.contact_info or candidate.contact_info
+    contact_info = merge_delimited_values(existing.contact_info, candidate.contact_info)
     date_found = min(existing.date_found, candidate.date_found)
+    pname = choose_best_name(existing.project_name, candidate.project_name)
 
     return ActiveProject(
         id=existing.id,
-        project_name=existing.project_name,
+        project_name=pname,
         city=existing.city or candidate.city,
         scale_scope=scale,
         associated_contractors="; ".join(contractors),
@@ -177,27 +200,33 @@ class DeduplicationEngine:
         conn = get_connection(self.db_path)
         cur = conn.cursor()
 
-        # Step 1: Exact Phone Match
-        if norm_phone:
-            cur.execute("SELECT * FROM contacts WHERE normalized_phone = ? AND normalized_phone != ''", (norm_phone,))
-            row = cur.fetchone()
-            if row:
-                existing = ContactEntity(**{k: row[k] for k in row.keys() if k in ContactEntity.model_fields})
-                merged = merge_two_contacts(existing, candidate, merge_reason="exact_phone")
-                upsert_contact_db(merged, self.db_path)
-                conn.close()
-                return merged.id, "merged_phone"
+        # Step 1: Exact Phone Match (Check each candidate phone against existing records)
+        cand_phones = [p.strip() for p in norm_phone.split(';') if p.strip()]
+        for p in cand_phones:
+            cur.execute("SELECT * FROM contacts WHERE normalized_phone LIKE ? AND normalized_phone != ''", (f"%{p}%",))
+            rows = cur.fetchall()
+            for row in rows:
+                ex_phones = [x.strip() for x in (row["normalized_phone"] or "").split(';')]
+                if p in ex_phones:
+                    existing = ContactEntity(**{k: row[k] for k in row.keys() if k in ContactEntity.model_fields})
+                    merged = merge_two_contacts(existing, candidate, merge_reason="exact_phone")
+                    upsert_contact_db(merged, self.db_path)
+                    conn.close()
+                    return merged.id, "merged_phone"
 
-        # Step 2: Exact Email Match
-        if norm_email:
-            cur.execute("SELECT * FROM contacts WHERE normalized_email = ? AND normalized_email != ''", (norm_email,))
-            row = cur.fetchone()
-            if row:
-                existing = ContactEntity(**{k: row[k] for k in row.keys() if k in ContactEntity.model_fields})
-                merged = merge_two_contacts(existing, candidate, merge_reason="exact_email")
-                upsert_contact_db(merged, self.db_path)
-                conn.close()
-                return merged.id, "merged_email"
+        # Step 2: Exact Email Match (Check each candidate email against existing records)
+        cand_emails = [e.strip().lower() for e in norm_email.split(';') if e.strip()]
+        for em in cand_emails:
+            cur.execute("SELECT * FROM contacts WHERE normalized_email LIKE ? AND normalized_email != ''", (f"%{em}%",))
+            rows = cur.fetchall()
+            for row in rows:
+                ex_emails = [x.strip().lower() for x in (row["normalized_email"] or "").split(';')]
+                if em in ex_emails:
+                    existing = ContactEntity(**{k: row[k] for k in row.keys() if k in ContactEntity.model_fields})
+                    merged = merge_two_contacts(existing, candidate, merge_reason="exact_email")
+                    upsert_contact_db(merged, self.db_path)
+                    conn.close()
+                    return merged.id, "merged_email"
 
         # Step 3: Fuzzy Composite Match on Name + Company
         cur.execute("SELECT * FROM contacts")
@@ -205,17 +234,23 @@ class DeduplicationEngine:
         conn.close()
 
         cand_composite = f"{clean_name} {clean_comp}".strip()
+        GENERIC_STOPWORDS = {
+            'متخصص معماری ساختمان', 'دفتر معماری مهندسی اصفهان', 'contact us', 'about us',
+            'صفحه اصلی', 'درباره ما', 'تماس با ما', 'پروژه ساختمانی'
+        }
+        is_generic = any(gw in clean_name for gw in GENERIC_STOPWORDS) or any(gw in clean_comp for gw in GENERIC_STOPWORDS)
+
         best_score = 0.0
         best_match_row = None
         best_reason = ""
 
-        if len(cand_composite) >= 4:
+        if len(cand_composite) >= 4 and not is_generic:
             for r in all_rows:
                 ex_name = r["clean_name"] or ""
                 ex_comp = r["clean_company"] or ""
                 ex_composite = f"{ex_name} {ex_comp}".strip()
 
-                if not ex_composite:
+                if not ex_composite or ex_composite in GENERIC_STOPWORDS:
                     continue
 
                 # RapidFuzz token sorting ratio and set ratio

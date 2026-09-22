@@ -1,10 +1,11 @@
+import os
 import time
 import random
 import re
 from typing import List, Dict, Any, Optional
 from ddgs import DDGS
 
-from normalizer import normalize_persian_text, normalize_city
+from normalizer import normalize_persian_text, normalize_city, clean_entity_name
 from models import ContactEntity, ActiveProject
 from geo_filter import classify_geography, should_admit_entity, should_admit_project
 from harvesters.text_parser import (
@@ -12,25 +13,32 @@ from harvesters.text_parser import (
     extract_emails,
     extract_social_handles,
     detect_entity_type,
+    extract_architects,
+    extract_contractors,
 )
 
 
 class SearchHarvester:
-    def __init__(self, max_retries: int = 3, delay_range: tuple = (1.5, 3.5)):
+    def __init__(self, max_retries: int = 3, delay_range: tuple = (1.0, 2.5)):
         self.max_retries = max_retries
         self.delay_range = delay_range
+        self.proxy_url = os.environ.get("HTTP_PROXY") or "http://127.0.0.1:10808"
 
     def search_query(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Run search query via DDGS with retry and randomized jitter."""
+        """Run search query via DDGS with proxy resilience and randomized jitter."""
         for attempt in range(self.max_retries):
             try:
-                # Random polite delay
                 time.sleep(random.uniform(*self.delay_range))
-                ddgs = DDGS(timeout=10)
+                ddgs = DDGS(timeout=10, proxy=self.proxy_url)
                 results = list(ddgs.text(query, max_results=max_results))
                 return results
-            except Exception as e:
-                time.sleep(2.0 * (attempt + 1))
+            except Exception:
+                try:
+                    ddgs = DDGS(timeout=10)
+                    results = list(ddgs.text(query, max_results=max_results))
+                    return results
+                except Exception:
+                    time.sleep(1.5 * (attempt + 1))
         return []
 
     def parse_linkedin_snippet(self, item: Dict[str, Any]) -> Optional[ContactEntity]:
@@ -82,15 +90,18 @@ class SearchHarvester:
         emails = extract_emails(body)
         handles = extract_social_handles(body)
 
+        clean_pname = clean_entity_name(name)
+        clean_cname = clean_entity_name(company)
+
         return ContactEntity(
             entity_type=entity_type,
-            name=name or "متخصص معماری / ساختمان",
+            name=clean_pname or "متخصص معماری / ساختمان",
             role=role or "معمار / مهندس سازه",
-            company=company or name,
+            company=clean_cname or clean_pname,
             city=city,
-            phone=phones[0] if phones else "",
-            email=emails[0] if emails else "",
-            social_handle=handles[0] if handles else "",
+            phone="; ".join(phones),
+            email="; ".join(emails),
+            social_handle="; ".join(handles),
             source_url=url,
             confidence="verified" if phones else "high",
         )
@@ -105,7 +116,6 @@ class SearchHarvester:
         body = item.get("body", "")
         title = item.get("title", "")
 
-        # Extract handle from URL
         handle_match = re.search(r'instagram\.com/([a-zA-Z0-9_\.]+)', url)
         handle = f"@{handle_match.group(1)}" if handle_match else ""
         if handle.lower() in ("@p", "@explore", "@reels", "@stories", "@direct"):
@@ -123,11 +133,10 @@ class SearchHarvester:
         phones = extract_phones(body)
         emails = extract_emails(body)
 
-        # Company / Name from Title
-        # e.g. "دفتر معماری رازان (@razanarchitects) • Instagram photos and videos"
         comp_title = re.sub(r'\(?@[a-zA-Z0-9_\.]+\)?.*$', '', title).strip()
         comp_title = re.sub(r'\s*•\s*Instagram.*$', '', comp_title, flags=re.IGNORECASE).strip()
         comp_title = re.sub(r'\s*\|\s*.*$', '', comp_title).strip()
+        comp_title = clean_entity_name(comp_title)
 
         return ContactEntity(
             entity_type=entity_type,
@@ -135,8 +144,8 @@ class SearchHarvester:
             role="دفتر معماری / پیمانکار اجرایی",
             company=comp_title or handle,
             city=city,
-            phone=phones[0] if phones else "",
-            email=emails[0] if emails else "",
+            phone="; ".join(phones),
+            email="; ".join(emails),
             social_handle=handle,
             source_url=url,
             confidence="verified" if phones else "high",
@@ -156,20 +165,20 @@ class SearchHarvester:
         if not admit:
             return None
 
-        # Domain blacklist for projects
         EXCLUDED_PROJECT_DOMAINS = [
-            'wikipedia.org', 'facebook.com', 'twitter.com', 'youtube.com',
+            'wikipedia.org', 'facebook.com', 'twitter.com', 'youtube.com', 'instagram.com',
             'aparat.com', 'virgool.io', 'civilica.com', 'magiran.com',
             'jobinja.ir', 'e-estekhdam.com', 'divar.ir', 'sheypoor.com',
-            'goldensaze.com', 'ketabeavval.ir', 'behtarino.com', 'isoarch.ir'
+            'goldensaze.com', 'ketabeavval.ir', 'behtarino.com', 'isoarch.ir',
+            'balad.ir', 'neshan.org', 'nshn.ir', 'map.ir', 'snapp.ir', 'tapsi.ir',
+            'pinwork.ir', 'achareh.ir', 'khedmatazma.com', 'ostadkar.ir'
         ]
         if any(d in url.lower() for d in EXCLUDED_PROJECT_DOMAINS):
             return None
 
-        phones = extract_phones(body)
-        
-        # Smart title selection: avoid generic prefixes like 'خانه', 'صفحه اصلی', 'Home'
-        parts = [p.strip() for p in re.split(r'[-–|]', title) if p.strip()]
+        phones = extract_phones(combined)
+
+        parts = [p.strip() for p in re.split(r'[-–—|؛:،]', title) if p.strip()]
         GENERIC_TITLES = {
             'خانه', 'صفحه اصلی', 'درباره ما', 'تماس با ما', 'صفحه نخست',
             'وب‌سایت رسمی', 'home', 'main', 'پروژه‌ها', 'پروژه ها', 'پروژه'
@@ -186,25 +195,26 @@ class SearchHarvester:
         if not clean_title:
             clean_title = title.strip()
 
-        # Reject excluded titles
+        clean_title = clean_entity_name(clean_title)
+
         EXCLUDED_TITLES = [
             'ویکی پدیا', 'ویکیپدیا', 'دانشنامه', 'بانک اطلاعات', 'لیست شرکت',
             'پروژه ها', 'پروژه‌ها', 'نمونه کار', 'گالری', 'درباره ما',
-            'تماس با ما', 'جامعه معماران', 'استخدام'
+            'تماس با ما', 'جامعه معماران', 'استخدام', 'روی نقشه', 'نظرات مردم',
+            'ساعت کاری', 'آدرس و تلفن', 'آدرس، تلفن', 'تصاویر و'
         ]
         if any(et in clean_title for et in EXCLUDED_TITLES) or len(clean_title.strip()) < 4:
             return None
 
-        # Extract contractor and architect cues from snippet body
-        arch_matches = re.findall(r'(?:طراح|آرشیتکت|مهندسین مشاور|معمار)\s*:\s*([^,\n\.]+)', body)
-        contractor_matches = re.findall(r'(?:مجری|پیمانکار|سازه|سازنده)\s*:\s*([^,\n\.]+)', body)
+        archs = extract_architects(combined)
+        conts = extract_contractors(combined)
 
-        arch_str = "; ".join([a.strip() for a in arch_matches]) if arch_matches else ""
-        contractor_str = "; ".join([c.strip() for c in contractor_matches]) if contractor_matches else ""
+        arch_str = "; ".join(archs)
+        contractor_str = "; ".join(conts)
 
-        # Scale detection
         scale_matches = re.findall(r'(\d+\s+طبقه|\d+\s+مترمربع|کرتین وال|ترمال بریک|لوکس|تجاری|مسکونی)', combined)
-        scale_str = ", ".join(scale_matches) if scale_matches else "پروژه ساختمانی"
+        unique_scale = list(dict.fromkeys(scale_matches))
+        scale_str = ", ".join(unique_scale) if unique_scale else "پروژه ساختمانی"
 
         return ActiveProject(
             project_name=clean_title or "پروژه ساختمانی",
@@ -212,7 +222,7 @@ class SearchHarvester:
             scale_scope=scale_str,
             associated_contractors=contractor_str,
             associated_architects=arch_str,
-            contact_info=phones[0] if phones else "",
+            contact_info="; ".join(phones),
             source_url=url,
             confidence="high" if phones or arch_str else "medium",
         )

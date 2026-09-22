@@ -1,10 +1,11 @@
+import os
 import re
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
-from normalizer import normalize_persian_text, normalize_city
+from normalizer import normalize_persian_text, normalize_city, clean_entity_name
 from models import ContactEntity, ActiveProject
 from geo_filter import classify_geography, should_admit_entity, should_admit_project
 from harvesters.text_parser import (
@@ -12,6 +13,8 @@ from harvesters.text_parser import (
     extract_emails,
     extract_social_handles,
     detect_entity_type,
+    extract_architects,
+    extract_contractors,
 )
 
 DEFAULT_TELEGRAM_CHANNELS = [
@@ -36,6 +39,12 @@ class TelegramScraper:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
         self.timeout = timeout
+        proxy_url = os.environ.get("HTTP_PROXY") or "http://127.0.0.1:10808"
+        try:
+            r = requests.get(proxy_url, timeout=0.5)
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
+        except Exception:
+            pass
 
     def fetch_channel_messages(self, channel: str, before_id: Optional[int] = None) -> Tuple[List[Dict[str, Any]], Optional[int]]:
         channel = channel.strip().lstrip('@').replace('https://t.me/s/', '').replace('https://t.me/', '').split('/')[0]
@@ -102,6 +111,29 @@ class TelegramScraper:
 
         return extracted, oldest_id
 
+    def extract_frontier_links(self, text: str) -> List[Dict[str, Any]]:
+        """Extract discovered channels and external links to expand the frontier queue."""
+        if not text:
+            return []
+        items = []
+        for h in extract_social_handles(text):
+            ch = h.lstrip('@').lower()
+            if ch not in ('p', 'explore', 'reels', 'channel', 'admin', 'bot', 'direct'):
+                items.append({
+                    "url": f"https://t.me/s/{ch}",
+                    "source_type": "telegram",
+                    "category": "channel_expansion",
+                })
+        for m in re.findall(r'https?://[^\s<>"\')]+', text):
+            u = m.strip().rstrip('.')
+            if 't.me' not in u and not any(ext in u.lower() for ext in ['.jpg', '.png', '.mp4', '.pdf', '.gif']):
+                items.append({
+                    "url": u,
+                    "source_type": "web",
+                    "category": "web_expansion",
+                })
+        return items
+
     def extract_entities_and_projects(self, raw_post: Dict[str, Any]) -> Tuple[List[ContactEntity], List[ActiveProject]]:
         text = raw_post.get("text", "")
         if not text or len(text.strip()) < 10:
@@ -115,9 +147,8 @@ class TelegramScraper:
         phones = extract_phones(text)
         emails = extract_emails(text)
         handles = extract_social_handles(text)
-        channel_handle = f"@{raw_post.get('channel', '')}"
-        if channel_handle not in handles:
-            handles.append(channel_handle)
+        channel_name = raw_post.get("channel", "")
+        channel_title = clean_entity_name(raw_post.get("channel_title") or raw_post.get("forwarded_from") or "")
 
         contacts: List[ContactEntity] = []
         projects: List[ActiveProject] = []
@@ -147,26 +178,24 @@ class TelegramScraper:
                 pname = ""
                 for l in lines:
                     if any(k in l for k in ['پروژه', 'برج', 'مجتمع', 'ساختمان', 'ویلا']) and not any(nk in l for nk in NON_PROJECT_KEYWORDS):
-                        pname = re.sub(r'^[#*•\-\s]+', '', l)[:70].strip()
+                        pname = clean_entity_name(re.sub(r'^[#*•\-\s]+', '', l)[:70].strip())
                         break
                 if not pname:
-                    pname = re.sub(r'^[#*•\-\s]+', '', lines[0])[:70].strip()
+                    pname = clean_entity_name(re.sub(r'^[#*•\-\s]+', '', lines[0])[:70].strip())
 
                 # Extract scale/scope cues
                 scale_matches = re.findall(r'(\d+\s+طبقه|\d+\s+مترمربع|\d+\s+واحد|اسکلت\s+\w+|نمای\s+\w+)', text)
                 scale_scope = ", ".join(scale_matches) if scale_matches else "پروژه ساختمانی"
 
-                # Extract architects/contractors
-                arch_matches = re.findall(r'(?:طراح|آرشیتکت|مهندسین مشاور|معمار)\s*:\s*([^,\n\.]+)', text)
-                contractor_matches = re.findall(r'(?:مجری|پیمانکار|سازه|سازنده)\s*:\s*([^,\n\.]+)', text)
+                archs = extract_architects(text)
+                conts = extract_contractors(text)
+                arch_str = "; ".join(archs) if archs else raw_post.get("forwarded_from", "")
+                contractor_str = "; ".join(conts)
 
-                arch_str = "; ".join([a.strip() for a in arch_matches]) if arch_matches else raw_post.get("forwarded_from", "")
-                contractor_str = "; ".join([c.strip() for c in contractor_matches]) if contractor_matches else ""
-
-                contact_info = phones[0] if phones else (handles[0] if handles else post_url)
+                contact_info = "; ".join(phones) if phones else ("; ".join(handles) if handles else post_url)
 
                 projects.append(ActiveProject(
-                    project_name=pname,
+                    project_name=pname or "پروژه ساختمانی",
                     city=city,
                     scale_scope=scale_scope,
                     associated_contractors=contractor_str,
@@ -178,9 +207,6 @@ class TelegramScraper:
                 ))
 
         # 2. Contact / Lead Detection
-        channel_name = raw_post.get("channel", "")
-        channel_title = raw_post.get("channel_title") or raw_post.get("forwarded_from") or ""
-
         # Classification heuristics based on channel and content
         if "esfarch" in channel_name or any(k in text for k in ["اسکیس", "کنکور ارشد", "دانشجو", "آموزش معماری", "آکادمی"]):
             entity_type = "student"
@@ -197,9 +223,7 @@ class TelegramScraper:
             person_match = re.search(r'(?:مهندس|دکتر|آرشیتکت)\s+([\u0600-\u06FF\s]{4,30})', text)
             clean_name = ""
             if person_match:
-                clean_name = f"مهندس {person_match.group(1).strip()}"
-                # Clean trailing punctuation
-                clean_name = re.sub(r'[\r\n\t]+', ' ', clean_name).strip()
+                clean_name = clean_entity_name(f"مهندس {person_match.group(1).strip()}")
 
             if not clean_name:
                 # Use clean channel title or organization name
@@ -207,10 +231,11 @@ class TelegramScraper:
 
             clean_comp = channel_title or clean_name
 
-            # Create contact record if phone or handle or email exists
-            if phones or emails or handles:
-                primary_phone = phones[0] if phones else ""
-                primary_email = emails[0] if emails else ""
+            # ONLY create contact lead if phone or email is present, OR person_match with a handle exists
+            # This prevents creating phantom contacts for broadcast announcements
+            if phones or emails or (person_match and handles):
+                primary_phone = "; ".join(phones)
+                primary_email = "; ".join(emails)
                 primary_handle = handles[0] if handles else f"@{channel_name}"
 
                 contacts.append(ContactEntity(
@@ -223,7 +248,7 @@ class TelegramScraper:
                     email=primary_email,
                     social_handle=primary_handle,
                     source_url=post_url,
-                    confidence="verified" if primary_phone else "high",
+                    confidence="verified" if phones else "high",
                     last_verified=date_found,
                 ))
 

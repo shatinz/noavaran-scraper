@@ -26,7 +26,7 @@ class ContactEntity(BaseModel):
     def to_csv_dict(self) -> Dict[str, str]:
         """Format matching exact contacts.csv specification."""
         return {
-            "entity_type": self.entity_type,
+            "entity_type (office/contractor/student/individual)": self.entity_type,
             "name": self.name,
             "role": self.role,
             "company": self.company,

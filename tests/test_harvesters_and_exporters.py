@@ -76,6 +76,15 @@ def test_search_engine_parsers():
     assert p.city == "Isfahan"
     assert "20 طبقه" in p.scale_scope or "ترمال بریک" in p.scale_scope
 
+    # Directory/map listing should be rejected
+    map_item = {
+        "title": "مجتمع تجاری نقش جهان اصفهان؛ آدرس، تلفن، ساعت کاری روی نقشه",
+        "body": "لیست مجتمعهای تجاری اداری اصفهان روی نقشه",
+        "href": "https://balad.ir/p/مجتمع-تجاری-نقش-جهان",
+    }
+    p_map = sh.parse_web_project_snippet(map_item)
+    assert p_map is None
+
 
 def test_exporters():
     temp_dir = tempfile.mkdtemp()
@@ -130,3 +139,62 @@ def test_exporters():
         assert len(rows) == 1
         assert rows[0]["project name"] == "پروژه تست اصفهان"
         assert rows[0]["associated contractor(s)"] == "پیمانکار تست"
+
+
+def test_extract_architects_and_contractors():
+    from harvesters.text_parser import extract_architects, extract_contractors
+
+    text1 = "پروژه احداث مجتمع تجاری مهستان. طراح: مهندسین مشاور نقش جهان. مجری: گروه ساختمانی پرشیا"
+    arch1 = extract_architects(text1)
+    cont1 = extract_contractors(text1)
+    assert any("نقش جهان" in a for a in arch1)
+    assert any("پرشیا" in c for c in cont1)
+
+    text2 = "معرفی پروژه مهستان از هلدینگ ساختمانی عقیق با نمای مدرن کرتین وال"
+    cont2 = extract_contractors(text2)
+    assert any("هلدینگ ساختمانی عقیق" in c for c in cont2)
+
+    text3 = "طراحی توسط دفتر معماری رازان و اجرای سازه توسط شرکت ساختمانی پرشین"
+    arch3 = extract_architects(text3)
+    cont3 = extract_contractors(text3)
+    assert any("دفتر معماری رازان" in a for a in arch3)
+    assert any("شرکت ساختمانی پرشین" in c for c in cont3)
+
+
+def test_contact_entity_csv_dict_keys():
+    from exporters import CONTACTS_CSV_HEADERS, PROJECTS_CSV_HEADERS
+    c = ContactEntity(entity_type="office", name="تست")
+    c_dict = c.to_csv_dict()
+    assert set(c_dict.keys()) == set(CONTACTS_CSV_HEADERS)
+
+    p = ActiveProject(project_name="پروژه تست")
+    p_dict = p.to_csv_dict()
+    assert set(p_dict.keys()) == set(PROJECTS_CSV_HEADERS)
+
+
+def test_frontier_queue_operations():
+    from database import init_db, add_frontier_urls, get_pending_frontier, update_frontier_status
+    temp_dir = tempfile.mkdtemp()
+    db_path = os.path.join(temp_dir, "test_frontier.db")
+    init_db(db_path)
+
+    urls = [
+        {"url": "https://padiav.com", "source_type": "web", "category": "office", "depth": 0},
+        {"url": "https://t.me/s/esfarch_ac", "source_type": "telegram", "category": "student", "depth": 0},
+    ]
+    added = add_frontier_urls(urls, db_path)
+    assert added == 2
+
+    # Duplicate url should be ignored
+    added_dup = add_frontier_urls([{"url": "https://padiav.com"}], db_path)
+    assert added_dup == 0
+
+    pending = get_pending_frontier(limit=10, db_path=db_path)
+    assert len(pending) == 2
+
+    # Mark first as visited
+    update_frontier_status("https://padiav.com", "visited", db_path)
+    pending_after = get_pending_frontier(limit=10, db_path=db_path)
+    assert len(pending_after) == 1
+    assert pending_after[0]["url"] == "https://t.me/s/esfarch_ac"
+

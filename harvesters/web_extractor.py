@@ -1,10 +1,11 @@
+import os
 import re
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
-from normalizer import normalize_persian_text, normalize_city
+from normalizer import normalize_persian_text, normalize_city, clean_entity_name
 from models import ContactEntity, ActiveProject
 from geo_filter import classify_geography, should_admit_entity, should_admit_project
 from harvesters.text_parser import (
@@ -12,11 +13,18 @@ from harvesters.text_parser import (
     extract_emails,
     extract_social_handles,
     detect_entity_type,
+    extract_architects,
+    extract_contractors,
 )
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+GENERIC_PAGE_TITLES = {
+    'contact us', 'about us', 'home', 'main', 'صفحه اصلی', 'درباره ما', 'تماس با ما',
+    'صفحه نخست', 'وب سایت رسمی', 'وب‌سایت رسمی', 'پروژه ها', 'پروژه‌ها', 'نمونه کار'
 }
 
 
@@ -25,6 +33,12 @@ class TargetedWebExtractor:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
         self.timeout = timeout
+        proxy_url = os.environ.get("HTTP_PROXY") or "http://127.0.0.1:10808"
+        try:
+            r = requests.get(proxy_url, timeout=0.5)
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
+        except Exception:
+            pass
 
     def fetch_and_prune(self, url: str) -> Optional[str]:
         """Fetch web page and strip scripts, styles, and navigational chrome."""
@@ -48,7 +62,6 @@ class TargetedWebExtractor:
         projects: List[ActiveProject] = []
         discovered_urls: List[str] = []
 
-        # 1. Fetch main page
         text = self.fetch_and_prune(base_url)
         if not text:
             return [], [], []
@@ -63,17 +76,17 @@ class TargetedWebExtractor:
         domain = urlparse(base_url).netloc
         comp_name = domain.replace("www.", "").split(".")[0].title()
 
-        # Check title
         try:
             r = self.session.get(base_url, timeout=self.timeout)
             s = BeautifulSoup(r.text, "html.parser")
             t_tag = s.find("title")
             if t_tag:
-                title_clean = t_tag.get_text(strip=True)
-                title_parts = re.split(r'[-–|]', title_clean)
-                comp_name = title_parts[0].strip()
+                title_clean = clean_entity_name(t_tag.get_text(strip=True))
+                title_parts = [p.strip() for p in re.split(r'[-–|]', title_clean) if p.strip()]
+                valid_parts = [p for p in title_parts if p.lower() not in GENERIC_PAGE_TITLES]
+                if valid_parts:
+                    comp_name = valid_parts[0]
 
-            # Find high-value subpage links
             for a in s.find_all("a", href=True):
                 href = a["href"].lower()
                 if any(k in href for k in ["contact", "about", "project", "portfolio", "تماس", "درباره", "پروژه"]):
@@ -93,9 +106,9 @@ class TargetedWebExtractor:
                 role="مدیرعامل / دفتر معماری و مهندسی",
                 company=comp_name,
                 city=city,
-                phone=phones[0] if phones else "",
-                email=emails[0] if emails else "",
-                social_handle=handles[0] if handles else "",
+                phone="; ".join(phones),
+                email="; ".join(emails),
+                social_handle="; ".join(handles),
                 source_url=base_url,
                 confidence="verified" if phones else "high",
             ))

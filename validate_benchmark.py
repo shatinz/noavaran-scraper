@@ -61,19 +61,19 @@ KNOWN_ISFAHAN_BENCHMARK = [
     {
         "name": "شرکت نما گستران اصفهان",
         "type": "contractor",
-        "keywords": ["نما گستران", "کرتین وال", "ترمال بریک"],
+        "keywords": ["نما گستران", "نماگستران", "namagostaran"],
         "category": "facade_contractor"
     },
     {
         "name": "گروه ساختمانی پرشین سازه اصفهان",
         "type": "contractor",
-        "keywords": ["پرشین", "سازه پایدار", "مجری ذیصلاح"],
+        "keywords": ["پرشین سازه", "persian sazeh", "persiansazeh"],
         "category": "building_contractor"
     },
     {
         "name": "استودیو طراحی ارگ اصفهان",
         "type": "office",
-        "keywords": ["ارگ", "arg design", "طراحی نما"],
+        "keywords": ["استودیو ارگ", "طراحی ارگ", "arg design studio", "معماری ارگ"],
         "category": "design_studio"
     },
     {
@@ -85,13 +85,13 @@ KNOWN_ISFAHAN_BENCHMARK = [
     {
         "name": "شرکت پنجره دوجداره پرشیا اصفهان",
         "type": "contractor",
-        "keywords": ["پرشیا پنجره", "پنجره دوجداره"],
+        "keywords": ["پرشیا پنجره", "persiapanjereh", "persia window"],
         "category": "door_window_facade"
     },
     {
         "name": "دفتر معماری فضا، رویداد، شهر",
         "type": "office",
-        "keywords": ["فضا رویداد شهر", "رویداد شهر"],
+        "keywords": ["فضا رویداد شهر", "فضا، رویداد، شهر", "رویداد شهر"],
         "category": "architecture_office"
     },
     {

@@ -242,3 +242,133 @@ def test_active_projects_dedup(test_db):
     assert "گروه سازه پایدار" in merged.associated_contractors
     assert "https://persian-const.com/aseman" in merged.source_url
     assert "https://instagram.com/aseman_tower_esfahan" in merged.source_url
+
+
+def test_multi_phone_lossless_merge(test_db):
+    engine = DeduplicationEngine(db_path=test_db)
+
+    c1 = ContactEntity(
+        entity_type="office",
+        name="دفتر معماری رازان",
+        company="رازان",
+        city="اصفهان",
+        phone="03131313160",
+        source_url="https://razan.ir",
+    )
+    id1, action1 = engine.process_contact(c1, run_id="r1", source_type="web")
+    assert action1 == "created_new"
+
+    # Candidate has landline + mobile number
+    c2 = ContactEntity(
+        entity_type="office",
+        name="دفتر معماری رازان",
+        company="رازان",
+        city="اصفهان",
+        phone="03131313160; 09131234567",
+        source_url="https://instagram.com/razan",
+    )
+    id2, action2 = engine.process_contact(c2, run_id="r2", source_type="instagram")
+    assert action2 == "merged_phone"
+    assert id1 == id2
+
+    contacts = get_all_contacts(test_db)
+    assert len(contacts) == 1
+    # Both numbers must be preserved without corruption
+    assert "03131313160" in contacts[0].phone
+    assert "09131234567" in contacts[0].phone
+    assert "21" not in str(len(contacts[0].phone))  # not concatenated to 21 digits
+
+
+def test_multi_email_lossless_merge(test_db):
+    engine = DeduplicationEngine(db_path=test_db)
+
+    c1 = ContactEntity(
+        entity_type="office",
+        name="شرکت مهندسی بافت شهر",
+        company="بافت شهر",
+        email="info@baftshahr.ir",
+        source_url="https://baftshahr.ir",
+    )
+    id1, _ = engine.process_contact(c1, run_id="r1", source_type="web")
+
+    c2 = ContactEntity(
+        entity_type="office",
+        name="شرکت مهندسی بافت شهر",
+        company="بافت شهر",
+        email="info@baftshahr.ir; support@baftshahr.ir",
+        source_url="https://linkedin.com/company/baftshahr",
+    )
+    id2, action2 = engine.process_contact(c2, run_id="r2", source_type="linkedin")
+    assert action2 == "merged_email"
+    assert id1 == id2
+
+    contacts = get_all_contacts(test_db)
+    assert len(contacts) == 1
+    assert "info@baftshahr.ir" in contacts[0].email
+    assert "support@baftshahr.ir" in contacts[0].email
+
+
+def test_phone_punctuation_and_provinces():
+    # Slashes
+    assert normalize_phone("۰۹۱۳/۱۲۳-۴۵۶۷") == "09131234567"
+    # Dots
+    assert normalize_phone("0913.123.4567") == "09131234567"
+    # Parentheses
+    assert normalize_phone("(031) 31313160") == "03131313160"
+    # Shiraz landline with +98
+    assert normalize_phone("+987136280000") == "07136280000"
+    # Mashhad landline
+    assert normalize_phone("05138400000") == "05138400000"
+    # Delimited multiple phones
+    multi = normalize_phone("09131234567 / 03131313160")
+    assert "09131234567" in multi
+    assert "03131313160" in multi
+
+
+def test_clean_entity_name_emojis_and_announcements():
+    from normalizer import clean_entity_name
+    # Strip pointing emojis and headline prefixes
+    t1 = "☝️ ☝️ ☝️ همایش رایگان اسکیس حضوری در اصفهان 🔵 نحوه"
+    cleaned1 = clean_entity_name(t1)
+    assert "☝️" not in cleaned1
+    assert "🔵" not in cleaned1
+
+    t2 = "✅ گزارش جلسات هیات رئیسه گروه تخصصی معماری سازمان"
+    cleaned2 = clean_entity_name(t2)
+    assert "✅" not in cleaned2
+
+    t3 = "⚜️معرفی پروژه مهستان (عتیق ۲۰) از هلدینگ ساختمانی عقیق⚜️"
+    cleaned3 = clean_entity_name(t3)
+    assert "⚜️" not in cleaned3
+    assert "مهستان (عتیق ۲۰)" in cleaned3
+
+    t4 = "تماس با ما – پرلیت ماهان اصفهان"
+    cleaned4 = clean_entity_name(t4)
+    assert "تماس با ما" not in cleaned4
+    assert cleaned4 == "پرلیت ماهان اصفهان"
+
+
+def test_no_fuzzy_false_merge_on_generic_names(test_db):
+    engine = DeduplicationEngine(db_path=test_db)
+
+    c1 = ContactEntity(
+        entity_type="office",
+        name="متخصص معماری / ساختمان",
+        company="متخصص معماری / ساختمان",
+        source_url="https://site1.com",
+    )
+    id1, action1 = engine.process_contact(c1, run_id="r1", source_type="web")
+    assert action1 == "created_new"
+
+    # Completely different person with placeholder name
+    c2 = ContactEntity(
+        entity_type="contractor",
+        name="متخصص معماری / ساختمان",
+        company="متخصص معماری / ساختمان",
+        source_url="https://site2.com",
+    )
+    id2, action2 = engine.process_contact(c2, run_id="r2", source_type="web")
+    # Must NOT auto-merge generic placeholder names
+    assert action2 != "merged_fuzzy"
+    assert id1 != id2
+
