@@ -1096,7 +1096,11 @@ class ScraperApp:
         except queue.Empty:
             pass
         finally:
-            self.root.after(50, self._poll_queue)
+            if not self.stop_event.is_set():
+                try:
+                    self.root.after(50, self._poll_queue)
+                except Exception:
+                    pass
 
     def _append_log(self, text: str, tag: Optional[str] = None):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -1197,6 +1201,7 @@ class ScraperApp:
                 self.stop_event.set()
                 self.root.destroy()
         else:
+            self.stop_event.set()
             self.root.destroy()
 
 
