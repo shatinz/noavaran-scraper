@@ -217,7 +217,7 @@ class LeadDiscoveryCrawler:
                             name=c_name or "دفتر معماری / پیمانکار",
                             role="دفتر معماری / پیمانکار",
                             company=c_name,
-                            city="Isfahan" if geo_tier == "isfahan" else "Tehran",
+                            city="Isfahan" if geo_tier == "isfahan" else normalize_city(combined),
                             phone="; ".join(ph),
                             email="; ".join(em),
                             social_handle="; ".join(hd),
@@ -320,3 +320,124 @@ class LeadDiscoveryCrawler:
             "projects_csv": export_stats["projects_file"],
         }
         return summary
+
+    def rebuild_cache_from_raw(self) -> Dict[str, Any]:
+        """
+        Re-process all pre-merge raw records using the latest normalization,
+        extraction, and deduplication logic, then re-export CSVs.
+        """
+        import sqlite3
+        import json
+        import os
+        from harvesters.text_parser import (
+            extract_phones,
+            extract_emails,
+            extract_social_handles,
+            clean_party_candidate,
+        )
+        from geo_filter import classify_geography
+        from normalizer import clean_entity_name, normalize_city, GENERIC_TITLES
+
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT id, run_id, source_type, source_url, raw_json FROM raw_records ORDER BY id ASC")
+        raw_rows = cur.fetchall()
+
+        # Clear active contacts and projects tables, preserving raw_records and frontier
+        cur.execute("DELETE FROM contacts")
+        cur.execute("DELETE FROM active_projects")
+        cur.execute("DELETE FROM ambiguous_reviews")
+        conn.commit()
+        conn.close()
+
+        # Reset raw_records.jsonl
+        if os.path.exists(self.dedup.raw_log_path):
+            try:
+                os.remove(self.dedup.raw_log_path)
+            except Exception:
+                pass
+
+        processed_contacts = 0
+        processed_projects = 0
+
+        for r_id, run_id, s_type, s_url, r_json in raw_rows:
+            try:
+                data = json.loads(r_json)
+            except Exception:
+                continue
+
+            if s_type == "telegram":
+                if "project_name" in data:
+                    pr = ActiveProject(**data)
+                    pr.associated_contractors = "; ".join([clean_party_candidate(c) for c in pr.associated_contractors.split(";") if clean_party_candidate(c)])
+                    pr.associated_architects = "; ".join([clean_party_candidate(a) for a in pr.associated_architects.split(";") if clean_party_candidate(a)])
+                    pr.city = normalize_city(pr.city)
+                    self.dedup.process_project(pr, run_id, s_type)
+                    processed_projects += 1
+                else:
+                    c = ContactEntity(**data)
+                    c.name = clean_entity_name(c.name)
+                    c.company = clean_entity_name(c.company)
+                    c.city = normalize_city(c.city)
+                    self.dedup.process_contact(c, run_id, s_type)
+                    processed_contacts += 1
+
+            elif s_type in ("linkedin", "linkedin_company"):
+                if isinstance(data, dict) and "title" in data:
+                    c_entity = self.search_harvester.parse_linkedin_snippet(data)
+                    if c_entity:
+                        self.dedup.process_contact(c_entity, run_id, s_type)
+                        processed_contacts += 1
+
+            elif s_type == "instagram":
+                if isinstance(data, dict) and "title" in data:
+                    c_entity = self.search_harvester.parse_instagram_snippet(data)
+                    if c_entity:
+                        self.dedup.process_contact(c_entity, run_id, s_type)
+                        processed_contacts += 1
+
+            elif s_type == "search_project":
+                if isinstance(data, dict) and "title" in data:
+                    p_entity = self.search_harvester.parse_web_project_snippet(data)
+                    if p_entity:
+                        self.dedup.process_project(p_entity, run_id, s_type)
+                        processed_projects += 1
+
+            elif s_type in ("web", "search_web"):
+                if isinstance(data, dict) and "title" in data:
+                    body = data.get("body", "")
+                    title = data.get("title", "")
+                    combined = f"{title} {body}"
+                    ph = extract_phones(combined)
+                    em = extract_emails(combined)
+                    hd = extract_social_handles(combined)
+                    if ph or em or hd:
+                        geo_tier = classify_geography(combined)
+                        title_parts = [p.strip() for p in re.split(r'[-–—|؛:،]', title) if p.strip()]
+                        valid_parts = [p for p in title_parts if clean_entity_name(p).lower() not in GENERIC_TITLES and p.lower() not in GENERIC_TITLES]
+                        raw_c_name = valid_parts[0] if valid_parts else title
+                        c_name = clean_entity_name(raw_c_name)
+                        c_entity = ContactEntity(
+                            entity_type="office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor",
+                            name=c_name or "دفتر معماری / پیمانکار",
+                            role="دفتر معماری / پیمانکار",
+                            company=c_name,
+                            city="Isfahan" if geo_tier == "isfahan" else normalize_city(combined),
+                            phone="; ".join(ph),
+                            email="; ".join(em),
+                            social_handle="; ".join(hd),
+                            source_url=s_url,
+                            confidence="verified" if ph else "high",
+                        )
+                        self.dedup.process_contact(c_entity, run_id, s_type)
+                        processed_contacts += 1
+
+        export_stats = export_all_csvs(self.db_path)
+        return {
+            "processed_raw_records": len(raw_rows),
+            "processed_contacts": processed_contacts,
+            "processed_projects": processed_projects,
+            "contacts_exported": export_stats["contacts_exported"],
+            "projects_exported": export_stats["projects_exported"],
+        }
+

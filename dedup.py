@@ -12,6 +12,7 @@ from normalizer import (
     clean_name_for_matching,
     clean_company_for_matching,
     normalize_city,
+    transliterate_persian_to_latin,
 )
 from models import ContactEntity, ActiveProject
 from database import (
@@ -49,6 +50,31 @@ def merge_source_urls(url1: Optional[str], url2: Optional[str]) -> str:
     return merge_delimited_values(url1, url2)
 
 
+def choose_better_entity_type(type1: Optional[str], type2: Optional[str]) -> str:
+    """Prioritize organizational entity types over generic individual."""
+    priority = {"office": 4, "contractor": 4, "student": 3, "individual": 1}
+    p1 = priority.get(type1 or "", 0)
+    p2 = priority.get(type2 or "", 0)
+    return (type1 if p1 >= p2 else type2) or "office"
+
+
+def extract_entity_slugs(url: Optional[str], handle: Optional[str]) -> List[str]:
+    """Extract non-generic path/handle slugs for cross-channel entity resolution."""
+    slugs = set()
+    GENERIC_SLUGS = {
+        'com', 'ir', 'net', 'org', 'io', 'www', 'instagram', 'facebook', 'linkedin',
+        'company', 'architecturaloffice', 'firms', 'architects', 'architecture', 'design',
+        'studio', 'fa', 'en', 'contact', 'about', 'profile', 'p', 'explore', 'pages', 'channel'
+    }
+    combined = f"{url or ''} {handle or ''}".lower()
+    raw_slugs = re.findall(r'[/@]([a-zA-Z0-9_\-]{4,30})', combined)
+    for s in raw_slugs:
+        s_clean = re.sub(r'[^a-z0-9]', '', s.lower())
+        if len(s_clean) >= 5 and s_clean not in GENERIC_SLUGS:
+            slugs.add(s_clean)
+    return list(slugs)
+
+
 def choose_best_name(name1: Optional[str], name2: Optional[str]) -> str:
     """Select the cleanest, most authoritative entity name without announcement spam."""
     n1 = clean_entity_name(name1)
@@ -80,7 +106,16 @@ def merge_two_contacts(existing: ContactEntity, candidate: ContactEntity, merge_
     name = choose_best_name(existing.name, candidate.name)
     company = choose_best_name(existing.company, candidate.company)
     role = existing.role or candidate.role
-    city = existing.city or candidate.city
+
+    # City selection: prefer explicitly discovered city over default fallback "Isfahan"
+    if existing.city == "Isfahan" and candidate.city and candidate.city != "Isfahan":
+        city = candidate.city
+    elif candidate.city == "Isfahan" and existing.city and existing.city != "Isfahan":
+        city = existing.city
+    else:
+        city = existing.city or candidate.city
+
+    entity_type = choose_better_entity_type(existing.entity_type, candidate.entity_type)
 
     confidence = existing.confidence
     if merge_reason in ("exact_phone", "exact_email"):
@@ -92,7 +127,7 @@ def merge_two_contacts(existing: ContactEntity, candidate: ContactEntity, merge_
 
     return ContactEntity(
         id=existing.id,
-        entity_type=existing.entity_type or candidate.entity_type,
+        entity_type=entity_type,
         name=name.strip(),
         role=role.strip(),
         company=company.strip(),
@@ -228,12 +263,17 @@ class DeduplicationEngine:
                     conn.close()
                     return merged.id, "merged_email"
 
-        # Step 3: Fuzzy Composite Match on Name + Company
+        # Step 3: Fuzzy Composite Match on Name + Company (Cross-lingual & Slug aware)
         cur.execute("SELECT * FROM contacts")
         all_rows = cur.fetchall()
         conn.close()
 
         cand_composite = f"{clean_name} {clean_comp}".strip()
+        cand_composite_lat = transliterate_persian_to_latin(cand_composite)
+        cand_comp_lat = transliterate_persian_to_latin(clean_comp)
+        cand_name_lat = transliterate_persian_to_latin(clean_name)
+        cand_slugs = extract_entity_slugs(candidate.source_url, candidate.social_handle)
+
         GENERIC_STOPWORDS = {
             'متخصص معماری ساختمان', 'دفتر معماری مهندسی اصفهان', 'contact us', 'about us',
             'صفحه اصلی', 'درباره ما', 'تماس با ما', 'پروژه ساختمانی'
@@ -244,7 +284,7 @@ class DeduplicationEngine:
         best_match_row = None
         best_reason = ""
 
-        if len(cand_composite) >= 4 and not is_generic:
+        if len(cand_composite) >= 3 and not is_generic:
             for r in all_rows:
                 ex_name = r["clean_name"] or ""
                 ex_comp = r["clean_company"] or ""
@@ -253,23 +293,53 @@ class DeduplicationEngine:
                 if not ex_composite or ex_composite in GENERIC_STOPWORDS:
                     continue
 
-                # RapidFuzz token sorting ratio and set ratio
+                # 1. Native composite RapidFuzz token sort and set ratio
                 sort_ratio = fuzz.token_sort_ratio(cand_composite, ex_composite)
                 set_ratio = fuzz.token_set_ratio(cand_composite, ex_composite)
                 composite_score = max(sort_ratio, set_ratio)
 
-                # If name matches closely, boost confidence
+                # 2. Cross-lingual / transliterated match (English <-> Persian)
+                ex_composite_lat = transliterate_persian_to_latin(ex_composite)
+                ex_comp_lat = transliterate_persian_to_latin(ex_comp)
+                ex_name_lat = transliterate_persian_to_latin(ex_name)
+
+                lat_sort = fuzz.token_sort_ratio(cand_composite_lat, ex_composite_lat) if cand_composite_lat and ex_composite_lat else 0.0
+                lat_set = fuzz.token_set_ratio(cand_composite_lat, ex_composite_lat) if cand_composite_lat and ex_composite_lat else 0.0
+                lat_comp_ratio = fuzz.token_sort_ratio(cand_comp_lat, ex_comp_lat) if cand_comp_lat and ex_comp_lat else 0.0
+                lat_name_ratio = fuzz.token_sort_ratio(cand_name_lat, ex_name_lat) if cand_name_lat and ex_name_lat else 0.0
+
+                cross_score = max(lat_sort, lat_set)
+                is_cand_firm = (not clean_name or clean_name == clean_comp or clean_comp in clean_name)
+                is_ex_firm = (not ex_name or ex_name == ex_comp or ex_comp in ex_name)
+
+                if is_cand_firm and is_ex_firm:
+                    if cand_comp_lat and ex_comp_lat and lat_comp_ratio >= 88.0:
+                        cross_score = max(cross_score, lat_comp_ratio)
+                else:
+                    if lat_name_ratio >= 88.0 and lat_comp_ratio >= 85.0:
+                        cross_score = max(cross_score, (lat_name_ratio + lat_comp_ratio) / 2.0)
+
+                score = max(composite_score, cross_score)
+
+                # 3. Distinctive URL / Handle slug overlap
+                ex_slugs = extract_entity_slugs(r["source_url"], r["social_handle"])
+                has_slug_match = False
+                if cand_slugs and ex_slugs:
+                    common_slugs = set(cand_slugs).intersection(set(ex_slugs))
+                    if common_slugs:
+                        score = max(score, 96.0)
+                        has_slug_match = True
+
+                # If name and company match closely, boost confidence
                 name_ratio = fuzz.token_sort_ratio(clean_name, ex_name) if clean_name and ex_name else 0.0
                 comp_ratio = fuzz.token_sort_ratio(clean_comp, ex_comp) if clean_comp and ex_comp else 0.0
-
-                score = composite_score
                 if name_ratio >= 90.0 and comp_ratio >= 85.0:
                     score = max(score, (name_ratio + comp_ratio) / 2.0)
 
                 if score > best_score:
                     best_score = score
                     best_match_row = r
-                    best_reason = f"Composite score: {score:.1f} (sort: {sort_ratio}, set: {set_ratio}, name: {name_ratio}, comp: {comp_ratio})"
+                    best_reason = f"Composite: {score:.1f} (native: {composite_score:.1f}, cross: {cross_score:.1f}, slug: {has_slug_match})"
 
         # Decision based on score thresholds
         if best_score >= AUTO_MERGE_SCORE_THRESHOLD and best_match_row:

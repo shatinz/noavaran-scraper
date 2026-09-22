@@ -28,6 +28,9 @@ def main():
     # Command: stats
     subparsers.add_parser("stats", help="Display cache and discovery statistics")
 
+    # Command: rebuild
+    subparsers.add_parser("rebuild", help="Re-process all logged raw records and re-export clean CSVs")
+
     # Command: validate
     subparsers.add_parser("validate", help="Run benchmark audit against known Isfahan entities")
 
@@ -51,6 +54,13 @@ def main():
         )
         print("\n=== RUN SUMMARY ===")
         print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+    elif args.command == "rebuild":
+        print("🔄 Re-processing all raw records with updated deduplication & normalizer logic...")
+        crawler = LeadDiscoveryCrawler()
+        stats = crawler.rebuild_cache_from_raw()
+        print(f"Processed {stats['processed_raw_records']} raw records -> {stats['contacts_exported']} contacts, {stats['projects_exported']} active projects")
+        print("Exported clean CSVs: contacts.csv, active_projects.csv")
 
     elif args.command == "export":
         print("📁 Exporting CSV files from persistent cache...")

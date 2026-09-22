@@ -172,26 +172,101 @@ GENERIC_TITLES = {
 }
 
 
+TRADEMARK_PATTERN = re.compile(r'[®™©\u00ae\u2122\u00a9]')
+
+SITE_SUFFIXES = [
+    r'\s*[-–—|•/]\s*(?:Memar|memar\.io|IranArchitects|LinkedIn|Facebook|Instagram|Twitter|Pinterest|Aparat|یوتیوب|اینستاگرام|لینکدین|فیسبوک|معمار|هومانو|ایران\s*معمار).*$',
+    r'\s*[-–—|/]\s*(?:Official\s+Page|Page|Group|Channel|کانال\s+رسمی|صفحه\s+رسمی)$',
+]
+
+ENGLISH_COMPANY_KEYWORDS = [
+    r'\barchitects\b',
+    r'\barchitecture\b',
+    r'\bstudio\b',
+    r'\bdesign\b',
+    r'\bconsulting\b',
+    r'\bconsultant\b',
+    r'\bengineers\b',
+    r'\bengineering\b',
+    r'\bgroup\b',
+    r'\boffice\b',
+    r'\bcompany\b',
+    r'\bco\b',
+    r'\bltd\b',
+    r'\binc\b',
+    r'\bconstruction\b',
+    r'\bcontractor\b',
+]
+
+PERSIAN_TO_LATIN_MAP = {
+    'آ': 'a', 'ا': 'a', 'ب': 'b', 'پ': 'p', 'ت': 't', 'ث': 's',
+    'ج': 'j', 'چ': 'ch', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'z',
+    'ر': 'r', 'ز': 'z', 'ژ': 'zh', 'س': 's', 'ش': 'sh', 'ص': 's',
+    'ض': 'z', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh', 'ف': 'f',
+    'ق': 'gh', 'ک': 'k', 'گ': 'g', 'ل': 'l', 'م': 'm', 'ن': 'n',
+    'و': 'v', 'ه': 'h', 'ی': 'y', 'ئ': 'y',
+}
+
+
+def split_pascal_case(text: str) -> str:
+    """Split CamelCase and PascalCase into space-separated words (e.g. RazanArchitects -> Razan Architects)."""
+    if not text:
+        return ""
+    s = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', str(text))
+    s = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', s)
+    return s
+
+
+def transliterate_persian_to_latin(text: Optional[str]) -> str:
+    """Phonetic transliteration of Persian characters to Latin for cross-lingual matching."""
+    if not text:
+        return ""
+    norm = normalize_persian_text(text).lower()
+    res = []
+    for ch in norm:
+        if ch in PERSIAN_TO_LATIN_MAP:
+            res.append(PERSIAN_TO_LATIN_MAP[ch])
+        elif ch.isascii() and ch.isalnum():
+            res.append(ch)
+        elif ch.isspace():
+            res.append(' ')
+    trans = "".join(res)
+    return re.sub(r'\s+', ' ', trans).strip()
+
+
 def clean_entity_name(name: Optional[str]) -> str:
-    """Sanitize entity names by removing emojis, hashtags, and announcement headlines."""
+    """
+    Sanitize entity names by removing emojis, hashtags, announcement headlines,
+    trademark symbols, site suffixes, and splitting PascalCase.
+    """
     if not name:
         return ""
-    cleaned = EMOJI_PATTERN.sub('', str(name))
+    cleaned = str(name)
+    # Strip trademark symbols
+    cleaned = TRADEMARK_PATTERN.sub('', cleaned)
+    # Split PascalCase in English tokens
+    cleaned = split_pascal_case(cleaned)
+    # Strip emojis
+    cleaned = EMOJI_PATTERN.sub('', cleaned)
     for p in ANNOUNCEMENT_PREFIXES:
         cleaned = re.sub(p, '', cleaned, flags=re.IGNORECASE)
     for s in ANNOUNCEMENT_SUFFIXES:
         cleaned = re.sub(s, '', cleaned, flags=re.IGNORECASE)
+    for ss in SITE_SUFFIXES:
+        cleaned = re.sub(ss, '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'[\r\n\t]+', ' ', cleaned)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    cleaned = re.sub(r'[\:\-–—\.\,]+$', '', cleaned).strip()
+    cleaned = re.sub(r'[\:\-–—\.\,،؛|/]+$', '', cleaned).strip()
+    cleaned = re.sub(r'^[\:\-–—\.\,،؛|/]+', '', cleaned).strip()
     return cleaned
 
 
 def clean_name_for_matching(name: Optional[str]) -> str:
-    """Strip honorifics and punctuation for fuzzy name comparison."""
+    """Strip honorifics, trademarks, and punctuation for fuzzy name comparison."""
     if not name:
         return ""
-    norm = normalize_persian_text(name).lower()
+    cleaned = clean_entity_name(name)
+    norm = normalize_persian_text(cleaned).lower()
     for h in HONORIFICS:
         norm = re.sub(h, '', norm, flags=re.IGNORECASE)
     # Remove punctuation
@@ -200,33 +275,96 @@ def clean_name_for_matching(name: Optional[str]) -> str:
 
 
 def clean_company_for_matching(company: Optional[str]) -> str:
-    """Strip organizational noise prefixes for fuzzy company comparison."""
+    """Strip organizational noise prefixes and English architecture keywords for fuzzy company comparison."""
     if not company:
         return ""
-    norm = normalize_persian_text(company).lower()
+    cleaned = clean_entity_name(company)
+    norm = normalize_persian_text(cleaned).lower()
     for p in COMPANY_PREFIXES:
         norm = re.sub(p, '', norm, flags=re.IGNORECASE)
+    for ek in ENGLISH_COMPANY_KEYWORDS:
+        norm = re.sub(ek, '', norm, flags=re.IGNORECASE)
     norm = re.sub(r'[^\w\s]', '', norm)
     return re.sub(r'\s+', ' ', norm).strip()
 
 
+CITY_MAPPINGS = [
+    # Isfahan & provincial towns (checked first)
+    ("Isfahan", ['اصفهان', 'esfahan', 'isfahan', 'سپاهان']),
+    ("Shahin Shahr", ['شاهین شهر', 'شاهین‌شهر', 'shahin shahr', 'shahinshahr']),
+    ("Najafabad", ['نجف آباد', 'نجف‌آباد', 'najafabad', 'najaf abad']),
+    ("Fooladshahr", ['فولادشهر', 'فولاد شهر', 'foladshahr', 'fooladshahr']),
+    ("Baharestan", ['بهارستان', 'baharestan']),
+    ("Khomeini Shahr", ['خمینی شهر', 'خمینی‌شهر', 'khomeini shahr', 'khomeinishahr']),
+    ("Mobarakeh", ['مبارکه', 'mobarakeh']),
+    ("Lenjan", ['لنجان', 'lenjan']),
+    ("Zarrin Shahr", ['زرین شهر', 'زرین‌شهر', 'zarrin shahr']),
+    ("Kashan", ['کاشان', 'kashan']),
+    ("Shahreza", ['شهرضا', 'shahreza']),
+    # Other Iranian major cities (multi-word / longer before single words)
+    ("Kermanshah", ['کرمانشاه', 'kermanshah']),
+    ("Bandar Abbas", ['بندرعباس', 'بندر عباس', 'bandar abbas']),
+    ("Khorramabad", ['خرم آباد', 'خرم‌آباد', 'khorramabad']),
+    ("Tehran", ['تهران', 'tehran']),
+    ("Mashhad", ['مشهد', 'mashhad']),
+    ("Shiraz", ['شیراز', 'shiraz']),
+    ("Tabriz", ['تبریز', 'tabriz']),
+    ("Karaj", ['کرج', 'karaj']),
+    ("Qom", ['قم', 'qom']),
+    ("Ahvaz", ['اهواز', 'ahvaz']),
+    ("Urmia", ['ارومیه', 'urmia', 'orumiyeh']),
+    ("Rasht", ['رشت', 'rasht']),
+    ("Zahedan", ['زاهدان', 'zahedan']),
+    ("Hamedan", ['همدان', 'hamedan']),
+    ("Kerman", ['کرمان', 'kerman']),
+    ("Yazd", ['یزد', 'yazd']),
+    ("Ardabil", ['اردبیل', 'ardabil']),
+    ("Arak", ['اراک', 'arak']),
+    ("Zanjan", ['زنجان', 'zanjan']),
+    ("Sanandaj", ['سنندج', 'sanandaj']),
+    ("Qazvin", ['قزوین', 'qazvin']),
+    ("Sari", ['ساری', 'sari']),
+    ("Gorgan", ['گرگان', 'gorgan']),
+    ("Bushehr", ['بوشهر', 'bushehr']),
+    ("Kish", ['کیش', 'kish']),
+    ("Qeshm", ['قشم', 'qeshm']),
+    # International cities
+    ("Dubai", ['دبی', 'دوبی', 'dubai', 'uae', 'emirates']),
+    ("Istanbul", ['استانبول', 'istanbul', 'turkey']),
+    ("Doha", ['دوحه', 'doha', 'qatar']),
+    ("Muscat", ['مسقط', 'muscat', 'oman']),
+]
+
+
 def normalize_city(city: Optional[str]) -> str:
-    """Canonicalize Iranian city names."""
+    """
+    Canonicalize Iranian city names.
+    - Case-insensitive
+    - Extracts actual city name from text snippets (e.g. from "... Tehran, Iran" -> "Tehran")
+    - NEVER returns a multi-word paragraph or string longer than a typical city name.
+    """
     if not city:
         return "Isfahan"  # Default geographic priority
     c = normalize_persian_text(city).strip()
-    if any(alias in c for alias in ['اصفهان', 'esfahan', 'isfahan', 'سپاهان']):
+    if not c:
         return "Isfahan"
-    if any(alias in c for alias in ['شاهین شهر', 'shahin shahr']):
-        return "Shahin Shahr"
-    if any(alias in c for alias in ['نجف آباد', 'najafabad']):
-        return "Najafabad"
-    if any(alias in c for alias in ['تهران', 'tehran']):
-        return "Tehran"
-    if any(alias in c for alias in ['مشهد', 'mashhad']):
-        return "Mashhad"
-    if any(alias in c for alias in ['شیراز', 'shiraz']):
-        return "Shiraz"
-    if any(alias in c for alias in ['تبریز', 'tabriz']):
-        return "Tabriz"
-    return c.title() if c.isascii() else c
+    c_lower = c.lower()
+
+    for canon_name, aliases in CITY_MAPPINGS:
+        for alias in aliases:
+            if alias.isascii():
+                if re.search(rf'\b{re.escape(alias)}\b', c_lower):
+                    return canon_name
+            else:
+                if alias in c_lower or alias in c:
+                    return canon_name
+
+    # If no alias matched, check if input was already a clean short city name
+    # e.g., <= 25 characters, <= 2 words, no sentence punctuation
+    has_sentence_noise = any(ch in c for ch in ['|', '@', ':', ';', '/', '\\', '\n', '\t', 'http', '...', '"', "'", '!', '?', '،'])
+    if len(c) <= 25 and len(c.split()) <= 2 and not has_sentence_noise:
+        return c.title() if c.isascii() else c
+
+    # Never return multi-word snippet/paragraph - fallback to Isfahan
+    return "Isfahan"
+

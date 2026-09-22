@@ -82,6 +82,23 @@ class SearchHarvester:
         if "student" in role.lower() or "دانشجو" in combined_text:
             entity_type = "student"
 
+        # LinkedIn company URL check: /company/ must be office or contractor, never individual
+        is_company = "/company/" in url.lower()
+        if is_company:
+            contractor_keywords = ["پیمانکار", "مجری", "سازه", "صنعتی", "تولید", "ساختمانی", "فولاد", "contractor", "construction", "industrial", "steel"]
+            if any(k in combined_text.lower() for k in contractor_keywords):
+                entity_type = "contractor"
+                default_role = "شرکت ساختمانی / پیمانکاری"
+            else:
+                entity_type = "office"
+                default_role = "شرکت معماری / مهندسی"
+            if not company:
+                company = name
+            if not name or name == "متخصص معماری / ساختمان":
+                name = company
+            if role in ("", "معمار / مهندس"):
+                role = default_role
+
         admit, _ = should_admit_entity(entity_type, geo_tier, combined_text)
         if not admit:
             return None
@@ -92,6 +109,9 @@ class SearchHarvester:
 
         clean_pname = clean_entity_name(name)
         clean_cname = clean_entity_name(company)
+        if is_company:
+            clean_pname = clean_pname or clean_cname
+            clean_cname = clean_cname or clean_pname
 
         return ContactEntity(
             entity_type=entity_type,
@@ -165,15 +185,38 @@ class SearchHarvester:
         if not admit:
             return None
 
+        # 1. Exclude lead/database marketplace domains and non-project sites
         EXCLUDED_PROJECT_DOMAINS = [
             'wikipedia.org', 'facebook.com', 'twitter.com', 'youtube.com', 'instagram.com',
             'aparat.com', 'virgool.io', 'civilica.com', 'magiran.com',
             'jobinja.ir', 'e-estekhdam.com', 'divar.ir', 'sheypoor.com',
             'goldensaze.com', 'ketabeavval.ir', 'behtarino.com', 'isoarch.ir',
             'balad.ir', 'neshan.org', 'nshn.ir', 'map.ir', 'snapp.ir', 'tapsi.ir',
-            'pinwork.ir', 'achareh.ir', 'khedmatazma.com', 'ostadkar.ir'
+            'pinwork.ir', 'achareh.ir', 'khedmatazma.com', 'ostadkar.ir',
+            'artaparsian.com', 'karsazan.ir', 'parssaze.com', 'sazejoo.com',
+            'ejra.ir', 'ibbi.ir', 'bank-etelaat.ir', 'amlak', 'delta.ir', 'kilid.com',
+            'sakhteman.com', 'sakhtemoon.com', 'irantalent.com', 'zobahan.esf'
         ]
         if any(d in url.lower() for d in EXCLUDED_PROJECT_DOMAINS):
+            return None
+
+        # 2. Exclude e-commerce / product / shop / database paths
+        EXCLUDED_URL_PATHS = [
+            '/product/', '/products/', '/shop/', '/store/', '/cart/', '/checkout/',
+            '/item/', '/items/', '/goods/', '/buy/', '/price/', '/archive/', '/category/',
+            '/tag/', '/blog/', '/mag/', '/article/', '/news/'
+        ]
+        if any(p in url.lower() for p in EXCLUDED_URL_PATHS):
+            return None
+
+        # 3. Exclude commercial project database listings & advertisements
+        DATABASE_MARKETPLACE_KEYWORDS = [
+            'بانک اطلاعات ساختمان', 'اطلاعات ساختمان های در حال ساخت', 'اطلاعات ساختمانهای در حال ساخت',
+            'پکیج اطلاعات ساختمان', 'فروش اطلاعات ساختمان', 'خرید اطلاعات پروژه', 'صحت اطلاعات',
+            'خرید اشتراک', 'لیست پروژه های در حال ساخت', 'بانک اطلاعات پروژه',
+            'فروش اطلاعات', 'خرید اطلاعات', 'لیست ساختمان های در حال ساخت'
+        ]
+        if any(k in combined for k in DATABASE_MARKETPLACE_KEYWORDS):
             return None
 
         phones = extract_phones(combined)
