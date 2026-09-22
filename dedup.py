@@ -9,10 +9,12 @@ from normalizer import (
     normalize_phone,
     normalize_email,
     clean_entity_name,
+    clean_person_name,
     clean_name_for_matching,
     clean_company_for_matching,
     normalize_city,
     transliterate_persian_to_latin,
+    GENERIC_TITLES,
 )
 from models import ContactEntity, ActiveProject
 from database import (
@@ -25,6 +27,7 @@ from database import (
     get_all_projects,
     DEFAULT_DB_PATH,
 )
+from harvesters.text_parser import is_excluded_project, is_excluded_domain
 
 AUTO_MERGE_SCORE_THRESHOLD = 88.0
 AMBIGUOUS_SCORE_THRESHOLD = 70.0
@@ -58,41 +61,43 @@ def choose_better_entity_type(type1: Optional[str], type2: Optional[str]) -> str
     return (type1 if p1 >= p2 else type2) or "office"
 
 
-def extract_entity_slugs(url: Optional[str], handle: Optional[str]) -> List[str]:
-    """Extract non-generic path/handle slugs for cross-channel entity resolution."""
-    slugs = set()
-    GENERIC_SLUGS = {
-        'com', 'ir', 'net', 'org', 'io', 'www', 'instagram', 'facebook', 'linkedin',
-        'company', 'architecturaloffice', 'firms', 'architects', 'architecture', 'design',
-        'studio', 'fa', 'en', 'contact', 'about', 'profile', 'p', 'explore', 'pages', 'channel'
-    }
-    combined = f"{url or ''} {handle or ''}".lower()
-    raw_slugs = re.findall(r'[/@]([a-zA-Z0-9_\-]{4,30})', combined)
-    for s in raw_slugs:
-        s_clean = re.sub(r'[^a-z0-9]', '', s.lower())
-        if len(s_clean) >= 5 and s_clean not in GENERIC_SLUGS:
-            slugs.add(s_clean)
-    return list(slugs)
-
-
 def choose_best_name(name1: Optional[str], name2: Optional[str]) -> str:
-    """Select the cleanest, most authoritative entity name without announcement spam."""
+    """Select the cleanest, most authoritative entity name without announcement spam or generic placeholders."""
     n1 = clean_entity_name(name1)
     n2 = clean_entity_name(name2)
     if not n1:
         return n2
     if not n2:
         return n1
+
+    is_n1_generic = any(gw in n1.lower() for gw in ['متخصص معماری', 'صفحه اصلی', 'درباره ما', 'تماس با ما', 'دفتر معماری / پیمانکار', 'دفتر معماری و مهندسی اصفهان']) or n1.lower() in GENERIC_TITLES
+    is_n2_generic = any(gw in n2.lower() for gw in ['متخصص معماری', 'صفحه اصلی', 'درباره ما', 'تماس با ما', 'دفتر معماری / پیمانکار', 'دفتر معماری و مهندسی اصفهان']) or n2.lower() in GENERIC_TITLES
+
+    if is_n1_generic and not is_n2_generic:
+        return n2
+    if is_n2_generic and not is_n1_generic:
+        return n1
+
     is_n1_announcement = any(k in n1 for k in ['همایش', 'گزارش', 'اطلاعیه', 'ثبت نام', 'کلاس', 'وبینار', 'جلسات', 'نتایج']) or len(n1) > 60
     is_n2_announcement = any(k in n2 for k in ['همایش', 'گزارش', 'اطلاعیه', 'ثبت نام', 'کلاس', 'وبینار', 'جلسات', 'نتایج']) or len(n2) > 60
     if is_n1_announcement and not is_n2_announcement:
         return n2
     if is_n2_announcement and not is_n1_announcement:
         return n1
+
     if n1.startswith(('مهندس', 'دکتر', 'آرشیتکت')) and not n2.startswith(('مهندس', 'دکتر', 'آرشیتکت')):
         return n1
     if n2.startswith(('مهندس', 'دکتر', 'آرشیتکت')) and not n1.startswith(('مهندس', 'دکتر', 'آرشیتکت')):
         return n2
+
+    # Prefer Persian name if one is Persian and the other is English
+    has_persian_n1 = any('\u0600' <= ch <= '\u06FF' for ch in n1)
+    has_persian_n2 = any('\u0600' <= ch <= '\u06FF' for ch in n2)
+    if has_persian_n1 and not has_persian_n2:
+        return n1
+    if has_persian_n2 and not has_persian_n1:
+        return n2
+
     return n1 if len(n1) >= len(n2) else n2
 
 
@@ -227,6 +232,14 @@ class DeduplicationEngine:
         # Step 0: Record pre-merge raw payload
         self.log_raw_entry(run_id, source_type, candidate.source_url, candidate.model_dump())
 
+        # Exclude contacts from non-target / marketplace / encyclopedia domains
+        if is_excluded_domain(candidate.source_url):
+            return "", "excluded_domain"
+
+        EXCLUDED_COMP_NAMES = {'کارفرما', 'پیمانکار', 'طراح', 'دانشنامه', 'ویکی پدیا', 'ویکی‌پدیا', 'بانک اطلاعات'}
+        if candidate.name in EXCLUDED_COMP_NAMES or any(k in candidate.name for k in ['بانک اطلاعات', 'ویکی پدیا', 'اطلاعات ساختمان']):
+            return "", "excluded_generic"
+
         norm_phone = normalize_phone(candidate.phone)
         norm_email = normalize_email(candidate.email)
         clean_name = clean_name_for_matching(candidate.name)
@@ -263,7 +276,7 @@ class DeduplicationEngine:
                     conn.close()
                     return merged.id, "merged_email"
 
-        # Step 3: Fuzzy Composite Match on Name + Company (Cross-lingual & Slug aware)
+        # Step 3: Fuzzy Composite Match on Name + Company (Cross-lingual aware)
         cur.execute("SELECT * FROM contacts")
         all_rows = cur.fetchall()
         conn.close()
@@ -272,7 +285,6 @@ class DeduplicationEngine:
         cand_composite_lat = transliterate_persian_to_latin(cand_composite)
         cand_comp_lat = transliterate_persian_to_latin(clean_comp)
         cand_name_lat = transliterate_persian_to_latin(clean_name)
-        cand_slugs = extract_entity_slugs(candidate.source_url, candidate.social_handle)
 
         GENERIC_STOPWORDS = {
             'متخصص معماری ساختمان', 'دفتر معماری مهندسی اصفهان', 'contact us', 'about us',
@@ -313,22 +325,13 @@ class DeduplicationEngine:
                 is_ex_firm = (not ex_name or ex_name == ex_comp or ex_comp in ex_name)
 
                 if is_cand_firm and is_ex_firm:
-                    if cand_comp_lat and ex_comp_lat and lat_comp_ratio >= 88.0:
+                    if cand_comp_lat and ex_comp_lat and len(cand_comp_lat) >= 4 and len(ex_comp_lat) >= 4 and lat_comp_ratio >= 88.0:
                         cross_score = max(cross_score, lat_comp_ratio)
                 else:
                     if lat_name_ratio >= 88.0 and lat_comp_ratio >= 85.0:
                         cross_score = max(cross_score, (lat_name_ratio + lat_comp_ratio) / 2.0)
 
                 score = max(composite_score, cross_score)
-
-                # 3. Distinctive URL / Handle slug overlap
-                ex_slugs = extract_entity_slugs(r["source_url"], r["social_handle"])
-                has_slug_match = False
-                if cand_slugs and ex_slugs:
-                    common_slugs = set(cand_slugs).intersection(set(ex_slugs))
-                    if common_slugs:
-                        score = max(score, 96.0)
-                        has_slug_match = True
 
                 # If name and company match closely, boost confidence
                 name_ratio = fuzz.token_sort_ratio(clean_name, ex_name) if clean_name and ex_name else 0.0
@@ -339,7 +342,7 @@ class DeduplicationEngine:
                 if score > best_score:
                     best_score = score
                     best_match_row = r
-                    best_reason = f"Composite: {score:.1f} (native: {composite_score:.1f}, cross: {cross_score:.1f}, slug: {has_slug_match})"
+                    best_reason = f"Composite: {score:.1f} (native: {composite_score:.1f}, cross: {cross_score:.1f})"
 
         # Decision based on score thresholds
         if best_score >= AUTO_MERGE_SCORE_THRESHOLD and best_match_row:
@@ -378,6 +381,10 @@ class DeduplicationEngine:
         """
         # Step 0: Record pre-merge raw payload
         self.log_raw_entry(run_id, source_type, candidate.source_url, candidate.model_dump())
+
+        # Exclude commercial database listings, shops, and marketplaces
+        if is_excluded_project(candidate.source_url, candidate.project_name):
+            return "", "excluded_project"
 
         clean_pname = clean_name_for_matching(candidate.project_name)
         clean_city = normalize_city(candidate.city).lower()

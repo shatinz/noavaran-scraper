@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
-from normalizer import normalize_persian_text, normalize_city, clean_entity_name
+from normalizer import normalize_persian_text, normalize_city, clean_entity_name, clean_person_name
 from models import ContactEntity, ActiveProject
 from geo_filter import classify_geography, should_admit_entity, should_admit_project
 from harvesters.text_parser import (
@@ -219,11 +219,13 @@ class TelegramScraper:
 
         admit_contact, reason = should_admit_entity(entity_type, geo_tier, text)
         if admit_contact:
-            # Detect personal name
-            person_match = re.search(r'(?:مهندس|دکتر|آرشیتکت)\s+([\u0600-\u06FF\s]{4,30})', text)
+            # Detect personal name with honorific
+            person_match = re.search(r'(مهندس|دکتر|آرشیتکت)\s+([\u0600-\u06FF\s]{3,35})', text)
             clean_name = ""
             if person_match:
-                clean_name = clean_entity_name(f"مهندس {person_match.group(1).strip()}")
+                prefix = person_match.group(1)
+                raw_cand = f"{prefix} {person_match.group(2).strip()}"
+                clean_name = clean_person_name(raw_cand)
 
             if not clean_name:
                 # Use clean channel title or organization name
@@ -231,12 +233,19 @@ class TelegramScraper:
 
             clean_comp = channel_title or clean_name
 
+            # Filter out channel broadcast watermarks from individual social handles
+            channel_kw = channel_name.lower().replace("_", "")
+            individual_handles = [
+                h for h in handles
+                if h.lower().lstrip('@').replace("_", "") not in (channel_kw, "esfahanarchitects", "esfarchac", "memarigardi", "akhbarnezamesf", "referenceenergyadmin")
+            ]
+            primary_handle = individual_handles[0] if individual_handles else ""
+
             # ONLY create contact lead if phone or email is present, OR person_match with a handle exists
             # This prevents creating phantom contacts for broadcast announcements
-            if phones or emails or (person_match and handles):
+            if phones or emails or (person_match and primary_handle):
                 primary_phone = "; ".join(phones)
                 primary_email = "; ".join(emails)
-                primary_handle = handles[0] if handles else f"@{channel_name}"
 
                 contacts.append(ContactEntity(
                     entity_type=entity_type,

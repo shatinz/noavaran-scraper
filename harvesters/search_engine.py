@@ -15,6 +15,7 @@ from harvesters.text_parser import (
     detect_entity_type,
     extract_architects,
     extract_contractors,
+    is_excluded_project,
 )
 
 
@@ -185,38 +186,8 @@ class SearchHarvester:
         if not admit:
             return None
 
-        # 1. Exclude lead/database marketplace domains and non-project sites
-        EXCLUDED_PROJECT_DOMAINS = [
-            'wikipedia.org', 'facebook.com', 'twitter.com', 'youtube.com', 'instagram.com',
-            'aparat.com', 'virgool.io', 'civilica.com', 'magiran.com',
-            'jobinja.ir', 'e-estekhdam.com', 'divar.ir', 'sheypoor.com',
-            'goldensaze.com', 'ketabeavval.ir', 'behtarino.com', 'isoarch.ir',
-            'balad.ir', 'neshan.org', 'nshn.ir', 'map.ir', 'snapp.ir', 'tapsi.ir',
-            'pinwork.ir', 'achareh.ir', 'khedmatazma.com', 'ostadkar.ir',
-            'artaparsian.com', 'karsazan.ir', 'parssaze.com', 'sazejoo.com',
-            'ejra.ir', 'ibbi.ir', 'bank-etelaat.ir', 'amlak', 'delta.ir', 'kilid.com',
-            'sakhteman.com', 'sakhtemoon.com', 'irantalent.com', 'zobahan.esf'
-        ]
-        if any(d in url.lower() for d in EXCLUDED_PROJECT_DOMAINS):
-            return None
-
-        # 2. Exclude e-commerce / product / shop / database paths
-        EXCLUDED_URL_PATHS = [
-            '/product/', '/products/', '/shop/', '/store/', '/cart/', '/checkout/',
-            '/item/', '/items/', '/goods/', '/buy/', '/price/', '/archive/', '/category/',
-            '/tag/', '/blog/', '/mag/', '/article/', '/news/'
-        ]
-        if any(p in url.lower() for p in EXCLUDED_URL_PATHS):
-            return None
-
-        # 3. Exclude commercial project database listings & advertisements
-        DATABASE_MARKETPLACE_KEYWORDS = [
-            'بانک اطلاعات ساختمان', 'اطلاعات ساختمان های در حال ساخت', 'اطلاعات ساختمانهای در حال ساخت',
-            'پکیج اطلاعات ساختمان', 'فروش اطلاعات ساختمان', 'خرید اطلاعات پروژه', 'صحت اطلاعات',
-            'خرید اشتراک', 'لیست پروژه های در حال ساخت', 'بانک اطلاعات پروژه',
-            'فروش اطلاعات', 'خرید اطلاعات', 'لیست ساختمان های در حال ساخت'
-        ]
-        if any(k in combined for k in DATABASE_MARKETPLACE_KEYWORDS):
+        # Exclude commercial project database listings, marketplaces, shops, and non-project sites
+        if is_excluded_project(url, title, combined):
             return None
 
         phones = extract_phones(combined)

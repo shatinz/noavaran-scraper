@@ -47,7 +47,7 @@ LARGE_SCALE_PROJECT_KEYWORDS = [
 ]
 
 TOP_TIER_STUDENT_UNIVERSITIES = [
-    'دانشگاه تهران', 'تهران', 'هنرهای زیبا', 'شهید بهشتی', 'علم و صنعت',
+    'دانشگاه تهران', 'دانشگاه هنر تهران', 'هنرهای زیبا', 'شهید بهشتی', 'علم و صنعت',
     'تربیت مدرس', 'امیرکبیر', 'شریف', 'tehran university', 'shahid beheshti',
     'iust', 'tarbiat modares', 'amirkabir', 'sharif', 'هنر تهران',
 ]
@@ -75,17 +75,17 @@ def classify_geography(text: str, city_field: Optional[str] = None) -> str:
 
     # 1. Isfahan check
     for kw in ISFAHAN_KEYWORDS:
-        if kw in combined_norm:
+        if re.search(rf'\b{re.escape(kw)}\b', combined_norm):
             return "isfahan"
 
     # 2. International check
     for kw in INTERNATIONAL_INDICATORS:
-        if kw in combined_norm:
+        if re.search(rf'\b{re.escape(kw)}\b', combined_norm):
             return "international"
 
     # 3. Other Iranian major cities
     for kw in IRANIAN_MAJOR_CITIES:
-        if kw in combined_norm:
+        if re.search(rf'\b{re.escape(kw)}\b', combined_norm):
             return "other_iran"
 
     # Default to Isfahan if no explicit city indicator in Iran context

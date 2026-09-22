@@ -4,15 +4,18 @@ import pytest
 
 from normalizer import (
     normalize_city,
+    normalize_phone,
     clean_entity_name,
+    clean_person_name,
     clean_company_for_matching,
     transliterate_persian_to_latin,
 )
 from models import ContactEntity
 from database import init_db, get_all_contacts
-from dedup import DeduplicationEngine
+from dedup import DeduplicationEngine, choose_best_name
 from harvesters.search_engine import SearchHarvester
 from harvesters.text_parser import extract_architects, extract_contractors
+from geo_filter import classify_geography
 
 
 @pytest.fixture
@@ -197,3 +200,72 @@ def test_cross_lingual_dedup_razan(test_db):
     assert "https://iranarchitects.com/architecturaloffice/115/razanarchitects" in merged.source_url
     assert "https://www.facebook.com/razantextandcontext/" in merged.source_url
     assert "@razanarchitects" in merged.social_handle
+
+
+def test_no_false_channel_slug_merge(test_db):
+    """Verify different entities posted in the same Telegram channel are NOT falsely merged."""
+    engine = DeduplicationEngine(db_path=test_db)
+
+    c1 = ContactEntity(
+        entity_type="office",
+        name="مهندس رضا رضایی",
+        role="طراح معماری",
+        company="مهندسین مشاور رضایی",
+        city="Isfahan",
+        source_url="https://t.me/s/esfahan_architects/100",
+    )
+    id1, action1 = engine.process_contact(c1, run_id="r1", source_type="telegram")
+    assert action1 == "created_new"
+
+    c2 = ContactEntity(
+        entity_type="office",
+        name="مهندس حسن حسنی",
+        role="طراح سازه",
+        company="شرکت ساختمانی حسنی",
+        city="Isfahan",
+        source_url="https://t.me/s/esfahan_architects/200",
+    )
+    id2, action2 = engine.process_contact(c2, run_id="r2", source_type="telegram")
+    assert action2 == "created_new"
+    assert id1 != id2
+
+    contacts = get_all_contacts(test_db)
+    assert len(contacts) == 2
+
+
+def test_nisba_city_names_not_misclassified():
+    """Verify surnames ending with nisba suffixes (e.g. Yazdani, Kashani) do not trigger false city classification."""
+    assert normalize_city("مهندس علی یزدانی مدیر پروژه") == "Isfahan"
+    assert normalize_city("مهندس حسین کاشانی طراح نما") == "Isfahan"
+    assert normalize_city("استودیو تهرانی و شرکا") == "Isfahan"
+
+    # Actual city mention MUST still work
+    assert normalize_city("دفتر معماری در یزد خیابان کاشانی") == "Yazd"
+    assert normalize_city("پروژه ساختمانی در کاشان") == "Kashan"
+
+    # Geographic classification check
+    assert classify_geography("مهندس علی یزدانی - طراح معماری") == "isfahan"
+    assert classify_geography("دفتر معماری در شهر یزد") == "other_iran"
+
+
+def test_corporate_registration_id_rejected_as_phone():
+    """Verify 11-digit company national IDs starting with 140... are rejected and not treated as phones."""
+    assert normalize_phone("14050628125") == ""
+    assert normalize_phone("14050611072") == ""
+    # Combined with real phone: only real phone is preserved
+    assert normalize_phone("14050628125; 03130003220") == "03130003220"
+
+
+def test_choose_best_name_never_chooses_generic_placeholder():
+    """Verify choose_best_name rejects generic placeholder titles in favor of actual entity names."""
+    assert choose_best_name("Palaz Group", "متخصص معماری / ساختمان") == "Palaz Group"
+    assert choose_best_name("متخصص معماری / ساختمان", "IRISA") == "IRISA"
+    assert choose_best_name("دفتر معماری رازان", "Razan Architects") == "دفتر معماری رازان"
+
+
+def test_clean_person_name_strips_trailing_clauses():
+    """Verify clean_person_name cuts off trailing conjunctions, prepositions, and narrative phrases."""
+    assert clean_person_name("مهندس دزفولی و استاد سرتیپی اساتید آ") == "مهندس دزفولی"
+    assert clean_person_name("مهندس بهزاد نوید نیا را به ایشان و خ") == "مهندس بهزاد نوید نیا"
+    assert clean_person_name("مهندس علی محجوب رئیس و اعضای هیئت رئ") == "مهندس علی محجوب"
+

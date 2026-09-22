@@ -16,6 +16,7 @@ from dedup import DeduplicationEngine
 from harvesters.search_engine import SearchHarvester
 from harvesters.telegram_scraper import TelegramScraper, DEFAULT_TELEGRAM_CHANNELS
 from harvesters.web_extractor import TargetedWebExtractor
+from harvesters.text_parser import is_excluded_domain, is_excluded_project
 from exporters import export_all_csvs
 
 # Balanced interleaved queries across all 4 target categories and geographic tiers
@@ -163,7 +164,7 @@ class LeadDiscoveryCrawler:
                 self.dedup.log_raw_entry(run_id, q_type, discovered_url, item)
 
                 # Queue target websites to frontier for deep crawl
-                if "instagram.com" not in discovered_url and "linkedin.com" not in discovered_url:
+                if "instagram.com" not in discovered_url and "linkedin.com" not in discovered_url and not is_excluded_domain(discovered_url):
                     add_frontier_urls([{
                         "url": discovered_url,
                         "source_type": "web",
@@ -212,8 +213,11 @@ class LeadDiscoveryCrawler:
                         valid_parts = [p for p in title_parts if clean_entity_name(p).lower() not in GENERIC_TITLES and p.lower() not in GENERIC_TITLES]
                         raw_c_name = valid_parts[0] if valid_parts else title
                         c_name = clean_entity_name(raw_c_name)
+                        e_type = "office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor"
+                        if "/company/" in discovered_url.lower():
+                            e_type = "contractor" if any(k in combined for k in ["پیمانکار", "مجری", "سازه", "صنعتی", "تولید", "ساختمانی", "فولاد"]) else "office"
                         c = ContactEntity(
-                            entity_type="office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor",
+                            entity_type=e_type,
                             name=c_name or "دفتر معماری / پیمانکار",
                             role="دفتر معماری / پیمانکار",
                             company=c_name,
@@ -334,9 +338,10 @@ class LeadDiscoveryCrawler:
             extract_emails,
             extract_social_handles,
             clean_party_candidate,
+            is_excluded_project,
         )
         from geo_filter import classify_geography
-        from normalizer import clean_entity_name, normalize_city, GENERIC_TITLES
+        from normalizer import clean_entity_name, clean_person_name, normalize_city, normalize_phone, GENERIC_TITLES
 
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
@@ -366,19 +371,26 @@ class LeadDiscoveryCrawler:
             except Exception:
                 continue
 
-            if s_type == "telegram":
+            if s_type in ("telegram", "tg_frontier", "web_frontier") or ("project_name" in data or "entity_type" in data):
                 if "project_name" in data:
                     pr = ActiveProject(**data)
-                    pr.associated_contractors = "; ".join([clean_party_candidate(c) for c in pr.associated_contractors.split(";") if clean_party_candidate(c)])
-                    pr.associated_architects = "; ".join([clean_party_candidate(a) for a in pr.associated_architects.split(";") if clean_party_candidate(a)])
+                    if is_excluded_project(pr.source_url, pr.project_name):
+                        continue
+                    clean_conts = [clean_party_candidate(c) for c in pr.associated_contractors.split(";") if clean_party_candidate(c)]
+                    clean_archs = [clean_party_candidate(a) for a in pr.associated_architects.split(";") if clean_party_candidate(a)]
+                    pr.associated_contractors = "; ".join(clean_conts)
+                    pr.associated_architects = "; ".join(clean_archs)
                     pr.city = normalize_city(pr.city)
                     self.dedup.process_project(pr, run_id, s_type)
                     processed_projects += 1
                 else:
                     c = ContactEntity(**data)
-                    c.name = clean_entity_name(c.name)
+                    if is_excluded_domain(c.source_url) or c.name in ("کارفرما", "بانک اطلاعات", "صفحه اصلی") or any(k in c.name for k in ["بانک اطلاعات", "ویکی پدیا", "اطلاعات ساختمان"]):
+                        continue
+                    c.name = clean_person_name(c.name)
                     c.company = clean_entity_name(c.company)
                     c.city = normalize_city(c.city)
+                    c.phone = normalize_phone(c.phone)
                     self.dedup.process_contact(c, run_id, s_type)
                     processed_contacts += 1
 
@@ -404,6 +416,8 @@ class LeadDiscoveryCrawler:
                         processed_projects += 1
 
             elif s_type in ("web", "search_web"):
+                if is_excluded_domain(s_url):
+                    continue
                 if isinstance(data, dict) and "title" in data:
                     body = data.get("body", "")
                     title = data.get("title", "")
@@ -417,8 +431,11 @@ class LeadDiscoveryCrawler:
                         valid_parts = [p for p in title_parts if clean_entity_name(p).lower() not in GENERIC_TITLES and p.lower() not in GENERIC_TITLES]
                         raw_c_name = valid_parts[0] if valid_parts else title
                         c_name = clean_entity_name(raw_c_name)
+                        e_type = "office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor"
+                        if "/company/" in s_url.lower():
+                            e_type = "contractor" if any(k in combined for k in ["پیمانکار", "مجری", "سازه", "صنعتی", "تولید", "ساختمانی", "فولاد"]) else "office"
                         c_entity = ContactEntity(
-                            entity_type="office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor",
+                            entity_type=e_type,
                             name=c_name or "دفتر معماری / پیمانکار",
                             role="دفتر معماری / پیمانکار",
                             company=c_name,

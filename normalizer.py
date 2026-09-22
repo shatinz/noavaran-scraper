@@ -95,19 +95,21 @@ def normalize_single_phone(phone: str) -> str:
     if len(clean_digits) == 10 and clean_digits[0] in '123456789':
         return f"0{clean_digits}"
 
-    # 2. 11-digit Iranian number starting with 0
+    # 2. 11-digit Iranian number starting with 0 (09 for mobile, 01-08 for landline)
     if len(clean_digits) == 11 and clean_digits.startswith('0'):
-        return clean_digits
+        if clean_digits.startswith('09') or clean_digits[1] in '12345678':
+            return clean_digits
+        return ""
 
     # 3. 8-digit landline without area code in Isfahan context -> prepend 031
-    if len(clean_digits) == 8 and clean_digits.startswith(('3', '4')):
+    if len(clean_digits) == 8 and clean_digits.startswith(('2', '3', '4', '5', '6', '7', '8')):
         return f"031{clean_digits}"
 
     # 4. International number
-    if has_plus:
+    if has_plus and 7 <= len(clean_digits) <= 15:
         return f"+{clean_digits}"
 
-    return clean_digits if len(clean_digits) >= 7 else ""
+    return ""
 
 
 def normalize_phone(phone: Optional[str]) -> str:
@@ -261,6 +263,31 @@ def clean_entity_name(name: Optional[str]) -> str:
     return cleaned
 
 
+PERSON_STOP_WORDS = re.compile(
+    r'\s+(?:و|یا|با|در|برای|به|از|بر|ضمن|جهت|را|که|اساتید|استاد|رئیس|اعضای|مدیر|تبریک|تسلیت|فقدان|مرحوم|مهندسان)\s+.*$',
+    flags=re.IGNORECASE
+)
+
+
+def clean_person_name(name: Optional[str]) -> str:
+    """
+    Clean an individual person's name, stripping trailing clauses,
+    prepositions, conjunctions, and limiting word length.
+    """
+    if not name:
+        return ""
+    cleaned = clean_entity_name(name)
+    cleaned = PERSON_STOP_WORDS.sub('', cleaned).strip()
+    # Split trailing delimiters
+    cleaned = re.split(r'[\:\-–—\.\,،؛|/]', cleaned)[0].strip()
+    words = cleaned.split()
+    if words and words[0] in ('مهندس', 'دکتر', 'آرشیتکت') and len(words) > 4:
+        cleaned = " ".join(words[:4])
+    elif len(words) > 4:
+        cleaned = " ".join(words[:4])
+    return cleaned.strip()
+
+
 def clean_name_for_matching(name: Optional[str]) -> str:
     """Strip honorifics, trademarks, and punctuation for fuzzy name comparison."""
     if not name:
@@ -352,12 +379,9 @@ def normalize_city(city: Optional[str]) -> str:
 
     for canon_name, aliases in CITY_MAPPINGS:
         for alias in aliases:
-            if alias.isascii():
-                if re.search(rf'\b{re.escape(alias)}\b', c_lower):
-                    return canon_name
-            else:
-                if alias in c_lower or alias in c:
-                    return canon_name
+            # Word boundary check for both Latin and Persian to prevent nisba surnames (e.g. Yazdani -> Yazd)
+            if re.search(rf'\b{re.escape(alias.lower())}\b', c_lower):
+                return canon_name
 
     # If no alias matched, check if input was already a clean short city name
     # e.g., <= 25 characters, <= 2 words, no sentence punctuation

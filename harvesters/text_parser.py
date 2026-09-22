@@ -42,7 +42,13 @@ SUBSTRING_NON_ENTITIES = [
     'صحت اطلاعات',
     'بسیاری از مراکز خرید',
     'مراکز خرید',
+    'مرکز خرید',
     'مراکز تجاری',
+    'مرکز تجاری',
+    'مجتمع تجاری',
+    'مجتمع مسکونی',
+    'برج تجاری',
+    'برج مسکونی',
     'انجام مطالعات',
     'مطالعات گسترده',
     'مورد بررسی',
@@ -212,3 +218,58 @@ def detect_entity_type(text: str) -> str:
             if kw in norm:
                 return cat
     return "individual"
+
+
+EXCLUDED_PROJECT_DOMAINS = [
+    'wikipedia.org', 'aparat.com', 'virgool.io', 'civilica.com', 'magiran.com',
+    'jobinja.ir', 'e-estekhdam.com', 'divar.ir', 'sheypoor.com',
+    'goldensaze.com', 'ketabeavval.ir', 'behtarino.com', 'isoarch.ir',
+    'balad.ir', 'neshan.org', 'nshn.ir', 'map.ir', 'snapp.ir', 'tapsi.ir',
+    'pinwork.ir', 'achareh.ir', 'khedmatazma.com', 'ostadkar.ir',
+    'artaparsian.com', 'karsazan.ir', 'parssaze.com', 'sazejoo.com',
+    'ejra.ir', 'ibbi.ir', 'bank-etelaat.ir', 'amlak', 'delta.ir', 'kilid.com',
+    'sakhteman.com', 'sakhtemoon.com', 'irantalent.com', 'zobahan.esf'
+]
+
+EXCLUDED_URL_PATHS = [
+    '/product/', '/products/', '/shop/', '/store/', '/cart/', '/checkout/',
+    '/item/', '/items/', '/goods/', '/buy/', '/price/', '/archive/', '/category/',
+    '/tag/', '/blog/', '/mag/', '/article/', '/news/'
+]
+
+DATABASE_MARKETPLACE_KEYWORDS = [
+    'بانک اطلاعات ساختمان', 'اطلاعات ساختمان های در حال ساخت', 'اطلاعات ساختمانهای در حال ساخت',
+    'پکیج اطلاعات ساختمان', 'فروش اطلاعات ساختمان', 'خرید اطلاعات پروژه', 'صحت اطلاعات',
+    'خرید اشتراک', 'لیست پروژه های در حال ساخت', 'بانک اطلاعات پروژه',
+    'فروش اطلاعات', 'خرید اطلاعات', 'لیست ساختمان های در حال ساخت'
+]
+
+
+def is_excluded_project(url: str, title: str = "", text: str = "") -> bool:
+    """Return True if the project lead is a commercial database listing, marketplace, shop, or non-project domain."""
+    u = (url or "").lower()
+    combined = f"{title or ''} {text or ''}".lower()
+    if any(d in u for d in EXCLUDED_PROJECT_DOMAINS):
+        return True
+    if any(p in u for p in EXCLUDED_URL_PATHS):
+        return True
+    if any(k in combined for k in DATABASE_MARKETPLACE_KEYWORDS):
+        return True
+    return False
+
+
+EXCLUDED_CONTACT_DOMAINS = [
+    'wikipedia.org', 'goldensaze.com', 'artaparsian.com', 'karsazan.ir', 'parssaze.com',
+    'sazejoo.com', 'ejra.ir', 'ibbi.ir', 'bank-etelaat.ir', 'sakhteman.com', 'sakhtemoon.com',
+    'balad.ir', 'neshan.org', 'map.ir', 'civilica.com', 'magiran.com',
+]
+
+
+def is_excluded_contact_domain(url: str) -> bool:
+    """Return True if the URL belongs to an encyclopedia, maps provider, or lead marketplace."""
+    u = (url or "").lower()
+    return any(d in u for d in EXCLUDED_CONTACT_DOMAINS)
+
+
+def is_excluded_domain(url: str) -> bool:
+    return is_excluded_contact_domain(url)

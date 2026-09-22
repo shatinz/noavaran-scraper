@@ -15,6 +15,8 @@ from harvesters.text_parser import (
     detect_entity_type,
     extract_architects,
     extract_contractors,
+    is_excluded_domain,
+    DATABASE_MARKETPLACE_KEYWORDS,
 )
 
 HEADERS = {
@@ -62,6 +64,9 @@ class TargetedWebExtractor:
         projects: List[ActiveProject] = []
         discovered_urls: List[str] = []
 
+        if is_excluded_domain(base_url):
+            return [], [], []
+
         text = self.fetch_and_prune(base_url)
         if not text:
             return [], [], []
@@ -92,9 +97,20 @@ class TargetedWebExtractor:
                 if any(k in href for k in ["contact", "about", "project", "portfolio", "تماس", "درباره", "پروژه"]):
                     full_link = urljoin(base_url, a["href"])
                     if full_link not in discovered_urls and urlparse(full_link).netloc == domain:
-                        discovered_urls.append(full_link)
+                        if not is_excluded_domain(full_link):
+                            discovered_urls.append(full_link)
         except Exception:
             pass
+
+        # Exclude non-entities, encyclopedia articles, and commercial database titles
+        EXCLUDED_COMP_NAMES = {'کارفرما', 'پیمانکار', 'طراح', 'دانشنامه', 'ویکی پدیا', 'ویکی‌پدیا', 'بانک اطلاعات'}
+        is_bad_name = (
+            comp_name in EXCLUDED_COMP_NAMES
+            or any(k in comp_name for k in ['بانک اطلاعات', 'ویکی پدیا', 'ویکی‌پدیا', 'اطلاعات ساختمان'])
+            or any(k in comp_name for k in DATABASE_MARKETPLACE_KEYWORDS)
+        )
+        if is_bad_name:
+            return [], [], discovered_urls
 
         entity_type = detect_entity_type(text)
         admit_contact, _ = should_admit_entity(entity_type, geo_tier, text)

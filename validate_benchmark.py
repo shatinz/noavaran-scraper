@@ -1,8 +1,15 @@
 import os
+import sys
 import json
 import csv
 from typing import List, Dict, Any
 from rapidfuzz import fuzz
+
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 from models import ContactEntity, ActiveProject
 from database import get_all_contacts, get_all_projects, DEFAULT_DB_PATH
