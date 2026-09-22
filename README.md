@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.14-blue.svg)
 ![Architecture](https://img.shields.io/badge/Architecture-Heuristic%20Zero--Token-emerald.svg)
-![Tests](https://img.shields.io/badge/Tests-36%20Passing-success.svg)
+![Tests](https://img.shields.io/badge/Tests-39%20Passing-success.svg)
 ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
 
 ---

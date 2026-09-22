@@ -4,24 +4,42 @@ import json
 from crawler import LeadDiscoveryCrawler
 from exporters import export_all_csvs
 from validate_benchmark import run_benchmark_audit
-from database import get_connection, DEFAULT_DB_PATH
+from database import get_connection, DEFAULT_DB_PATH, init_db, get_cache_stats
 
 import io
 
-# Ensure UTF-8 output on Windows terminal and prevent NoneType errors in windowed mode
-if sys.stdout is None:
-    sys.stdout = io.StringIO()
-elif hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+def _setup_console_io():
+    # If run in windowed mode from terminal (PowerShell / CMD), attach to parent console so CLI commands work
+    if sys.platform == "win32" and (sys.stdout is None or getattr(sys.stdout, "closed", False)):
+        try:
+            import ctypes
+            if ctypes.windll.kernel32.AttachConsole(-1):
+                sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
-if sys.stderr is None:
-    sys.stderr = io.StringIO()
+    if sys.stdout is None:
+        sys.stdout = io.StringIO()
+    elif hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+    if sys.stderr is None:
+        sys.stderr = io.StringIO()
+    elif hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+_setup_console_io()
 
 
 def main():
+    init_db(DEFAULT_DB_PATH)
     parser = argparse.ArgumentParser(description="Noavaran Panjereh Lead Discovery Scraper")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -93,23 +111,12 @@ def main():
         print(f"Exported {stats['projects_exported']} active projects to {stats['projects_file']}")
 
     elif args.command == "stats":
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT count(*) FROM contacts")
-        c_count = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM active_projects")
-        p_count = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM raw_records")
-        raw_count = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM ambiguous_reviews")
-        amb_count = cur.fetchone()[0]
-        conn.close()
-
+        stats = get_cache_stats(DEFAULT_DB_PATH)
         print("=== CACHE STATISTICS ===")
-        print(f"Total Contacts: {c_count}")
-        print(f"Total Active Projects: {p_count}")
-        print(f"Pre-merge Raw Records Logged: {raw_count}")
-        print(f"Ambiguous Matches Flagged for Review: {amb_count}")
+        print(f"Total Contacts: {stats['contacts']}")
+        print(f"Total Active Projects: {stats['projects']}")
+        print(f"Pre-merge Raw Records Logged: {stats['raw_records']}")
+        print(f"Ambiguous Matches Flagged for Review: {stats['ambiguous_reviews']}")
 
     elif args.command == "validate":
         print("🔍 Running Hand-Picked Benchmark Audit...")

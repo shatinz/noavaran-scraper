@@ -15,20 +15,30 @@ from tkinter import ttk, messagebox, filedialog, scrolledtext
 # Enable high DPI awareness on Windows if possible
 try:
     import ctypes
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(-2)
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
 except Exception:
     pass
 
 from database import (
     DEFAULT_DB_PATH,
+    init_db,
     get_connection,
     get_all_contacts,
     get_all_projects,
+    get_contact_by_id,
+    get_project_by_id,
     get_ambiguous_reviews,
     get_cache_stats,
     get_base_dir,
 )
 from models import ContactEntity, ActiveProject
+from normalizer import normalize_persian_text
 from exporters import (
     export_all_csvs,
     export_contacts_to_csv,
@@ -44,6 +54,9 @@ class ScraperApp:
     def __init__(self, root: tk.Tk, db_path: str = DEFAULT_DB_PATH):
         self.root = root
         self.db_path = db_path
+        # Ensure database tables exist immediately before any query
+        init_db(self.db_path)
+
         self.root.title("Noavaran Panjereh - Lead & Project Discovery Scraper | نوآوران پنجره")
         self.root.geometry("1120x760")
         self.root.minsize(960, 620)
@@ -62,6 +75,7 @@ class ScraperApp:
         # Sort order trackers
         self.contacts_sort_state = {}
         self.projects_sort_state = {}
+        self.reviews_sort_state = {}
 
         self._configure_styles()
         self._build_header()
@@ -519,7 +533,7 @@ class ScraperApp:
         ]
 
         for col_id, col_name, col_w in col_defs:
-            self.tree_reviews.heading(col_id, text=col_name)
+            self.tree_reviews.heading(col_id, text=col_name, command=lambda c=col_id: self._sort_tree(self.tree_reviews, self.reviews_sort_state, c))
             self.tree_reviews.column(col_id, width=col_w)
 
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_reviews.yview)
@@ -647,7 +661,7 @@ class ScraperApp:
             self._append_log(f"خطا در بارگذاری برخوردهای مبهم: {e}", tag="error")
 
     def _filter_contacts(self):
-        query = self.ent_search_contacts.get().strip().lower()
+        query = normalize_persian_text(self.ent_search_contacts.get()).strip().lower()
         filter_type = self.cmb_filter_type.get()
         filter_city = self.cmb_filter_city.get()
 
@@ -661,14 +675,18 @@ class ScraperApp:
 
             # City match
             if filter_city != "همه (All)":
-                if filter_city == "Other" and c.city in ("Isfahan", "Tehran"):
+                c_city = (c.city or "").strip().lower()
+                f_city = filter_city.strip().lower()
+                if f_city == "other" and c_city in ("isfahan", "tehran"):
                     continue
-                elif filter_city in ("Isfahan", "Tehran") and c.city != filter_city:
+                elif f_city in ("isfahan", "tehran") and c_city != f_city:
                     continue
 
-            # Text query match across multiple fields
+            # Text query match across multiple fields with Persian normalization
             if query:
-                search_blob = f"{c.name} {c.role} {c.company} {c.city} {c.phone} {c.email} {c.social_handle}".lower()
+                search_blob = normalize_persian_text(
+                    f"{c.name} {c.role} {c.company} {c.city} {c.phone} {c.email} {c.social_handle}"
+                ).lower()
                 if query not in search_blob:
                     continue
 
@@ -693,7 +711,7 @@ class ScraperApp:
         self.lbl_contacts_count.config(text=f"نمایش {shown} از {len(self.contacts_cache)} مخاطب")
 
     def _filter_projects(self):
-        query = self.ent_search_projects.get().strip().lower()
+        query = normalize_persian_text(self.ent_search_projects.get()).strip().lower()
         filter_city = self.cmb_proj_city.get()
 
         self.tree_projects.delete(*self.tree_projects.get_children())
@@ -701,13 +719,17 @@ class ScraperApp:
 
         for p in self.projects_cache:
             if filter_city != "همه (All)":
-                if filter_city == "Other" and p.city in ("Isfahan", "Tehran"):
+                p_city = (p.city or "").strip().lower()
+                f_city = filter_city.strip().lower()
+                if f_city == "other" and p_city in ("isfahan", "tehran"):
                     continue
-                elif filter_city in ("Isfahan", "Tehran") and p.city != filter_city:
+                elif f_city in ("isfahan", "tehran") and p_city != f_city:
                     continue
 
             if query:
-                search_blob = f"{p.project_name} {p.associated_contractors} {p.associated_architects} {p.city} {p.scale_scope} {p.contact_info}".lower()
+                search_blob = normalize_persian_text(
+                    f"{p.project_name} {p.associated_contractors} {p.associated_architects} {p.city} {p.scale_scope} {p.contact_info}"
+                ).lower()
                 if query not in search_blob:
                     continue
 
@@ -778,9 +800,69 @@ class ScraperApp:
                 parsed_json = json.loads(match_item["candidate_json"])
                 pretty = json.dumps(parsed_json, indent=2, ensure_ascii=False)
             except Exception:
+                parsed_json = {}
                 pretty = match_item["candidate_json"]
+
+            c_type = match_item.get("candidate_type", "contact")
+            exist_id = match_item.get("existing_id", "")
+            score = match_item.get("match_score", 0.0)
+            reason = match_item.get("match_reason", "")
+
+            # Look up existing record from database
+            existing_info = "رکورد متناظر در دیتابیس یافت نشد (یا ممکن است قبلاً حذف شده باشد)."
+            if c_type == "contact" and exist_id:
+                existing_c = get_contact_by_id(exist_id, self.db_path)
+                if existing_c:
+                    existing_info = (
+                        f"• شناسه: {existing_c.id}\n"
+                        f"• نام: {existing_c.name} | شرکت: {existing_c.company}\n"
+                        f"• نقش: {existing_c.role} | نوع: {existing_c.entity_type} | شهر: {existing_c.city}\n"
+                        f"• شماره تماس: {existing_c.phone} | ایمیل: {existing_c.email}\n"
+                        f"• شبکه‌های اجتماعی: {existing_c.social_handle}\n"
+                        f"• لینک منبع: {existing_c.source_url}\n"
+                        f"• درجه اطمینان: {existing_c.confidence} | آخرین بررسی: {existing_c.last_verified}"
+                    )
+            elif c_type == "project" and exist_id:
+                existing_p = get_project_by_id(exist_id, self.db_path)
+                if existing_p:
+                    existing_info = (
+                        f"• شناسه: {existing_p.id}\n"
+                        f"• نام پروژه: {existing_p.project_name} | شهر: {existing_p.city}\n"
+                        f"• مقیاس و مشخصات: {existing_p.scale_scope}\n"
+                        f"• پیمانکار(ان): {existing_p.associated_contractors}\n"
+                        f"• معمار(ان) / مشاور: {existing_p.associated_architects}\n"
+                        f"• اطلاعات تماس: {existing_p.contact_info}\n"
+                        f"• لینک منبع: {existing_p.source_url}"
+                    )
+
+            # Format candidate summary
+            cand_name = parsed_json.get("name") or parsed_json.get("project_name", "-")
+            cand_comp = parsed_json.get("company") or parsed_json.get("associated_contractors", "-")
+            cand_role = parsed_json.get("role") or parsed_json.get("scale_scope", "-")
+            cand_city = parsed_json.get("city", "-")
+            cand_phone = parsed_json.get("phone") or parsed_json.get("contact_info", "-")
+            cand_email = parsed_json.get("email", "-")
+            cand_src = parsed_json.get("source_url", "-")
+
+            candidate_info = (
+                f"• نام / پروژه: {cand_name} | شرکت / پیمانکار: {cand_comp}\n"
+                f"• نقش / مقیاس: {cand_role} | شهر: {cand_city}\n"
+                f"• شماره تماس: {cand_phone} | ایمیل: {cand_email}\n"
+                f"• لینک منبع: {cand_src}"
+            )
+
+            detail_text = (
+                f"=== مشخصات رکورد موجود در دیتابیس (Existing Record in Database) ===\n"
+                f"{existing_info}\n\n"
+                f"=== کاندیدای کشف شده جدید (Candidate Discovered Record) ===\n"
+                f"امتیاز شباهت فازی: {score:.1f}% | علت بازبینی: {reason}\n"
+                f"{candidate_info}\n\n"
+                f"=== محتوای خام JSON کاندید (Candidate Raw JSON Payload) ===\n"
+                f"{pretty}"
+            )
+
             self.txt_review_detail.delete("1.0", tk.END)
-            self.txt_review_detail.insert("1.0", f"Existing ID: {match_item['existing_id']}\nScore: {match_item['match_score']}%\nReason: {match_item['match_reason']}\n\nCandidate Raw JSON:\n{pretty}")
+            self.txt_review_detail.insert("1.0", detail_text)
 
     # ========================== Interactive Actions ==========================
 
@@ -832,10 +914,15 @@ class ScraperApp:
     def _sort_tree(self, tree: ttk.Treeview, sort_state: dict, col: str):
         rev = sort_state.get(col, False)
         items = [(tree.set(k, col), k) for k in tree.get_children("")]
-        try:
-            items.sort(key=lambda t: float(t[0].replace("%", "").strip()), reverse=rev)
-        except ValueError:
-            items.sort(key=lambda t: t[0].lower(), reverse=rev)
+
+        def sort_key(t):
+            val = (t[0] or "").replace("%", "").strip()
+            try:
+                return (0, float(val))
+            except ValueError:
+                return (1, (t[0] or "").lower())
+
+        items.sort(key=sort_key, reverse=rev)
 
         for index, (_, k) in enumerate(items):
             tree.move(k, "", index)
@@ -872,8 +959,10 @@ class ScraperApp:
             tg = int(self.spn_tg.get())
             r_per_q = int(self.spn_results.get())
             frontier_m = int(self.spn_frontier.get())
+            if passes <= 0 or streak <= 0 or budget <= 0 or tg <= 0 or r_per_q <= 0 or frontier_m < 0:
+                raise ValueError("Values must be positive")
         except ValueError:
-            messagebox.showerror("خطای ورودی", "لطفاً مقادیر عددی معتبر در تنظیمات وارد نمایید.")
+            messagebox.showerror("خطای ورودی", "لطفاً مقادیر عددی معتبر و مثبت در تنظیمات وارد نمایید.")
             return
 
         self.stop_event.clear()
@@ -968,13 +1057,19 @@ class ScraperApp:
 
                 elif msg_type == "crawl_done":
                     self._set_busy_state(False)
-                    self._append_log("✅ پویش با موفقیت به پایان رسید.", tag="success")
+                    is_cancelled = payload.get("cancelled", False)
+                    if is_cancelled:
+                        self._append_log("⏹ عملیات پویش توسط کاربر متوقف شد.", tag="warning")
+                    else:
+                        self._append_log("✅ پویش با موفقیت به پایان رسید.", tag="success")
                     self._append_log(f"خلاصه: +{payload.get('new_entities_this_run', 0)} رکورد جدید در {payload.get('duration_sec', 0)} ثانیه.", tag="info")
                     self._refresh_stats()
                     self._load_contacts_from_db()
                     self._load_projects_from_db()
                     self._load_reviews_from_db()
-                    messagebox.showinfo("پایان عملیات", f"پویش به اتمام رسید.\nرکوردهای جدید: {payload.get('new_entities_this_run', 0)}\nمدت زمان: {payload.get('duration_sec', 0)}s")
+                    title = "توقف عملیات" if is_cancelled else "پایان عملیات"
+                    status_msg = "عملیات توسط کاربر متوقف شد." if is_cancelled else "پویش به اتمام رسید."
+                    messagebox.showinfo(title, f"{status_msg}\nرکوردهای جدید: {payload.get('new_entities_this_run', 0)}\nمدت زمان: {payload.get('duration_sec', 0)}s")
 
                 elif msg_type == "rebuild_done":
                     self._set_busy_state(False)
@@ -1106,8 +1201,9 @@ class ScraperApp:
 
 
 def launch_ui(db_path: Optional[str] = None):
-    root = tk.Tk()
     target_db = db_path or DEFAULT_DB_PATH
+    init_db(target_db)
+    root = tk.Tk()
     app = ScraperApp(root, db_path=target_db)
     root.mainloop()
 

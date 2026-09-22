@@ -171,5 +171,101 @@ def test_ui_sorting(temp_ui_db):
         p_children = app.tree_projects.get_children()
         assert len(p_children) == 1
 
+        # Sort reviews by score
+        app._sort_tree(app.tree_reviews, app.reviews_sort_state, "score")
+        r_children = app.tree_reviews.get_children()
+        assert len(r_children) == 1
+
     finally:
         root.destroy()
+
+
+def test_ui_initialization_on_uninitialized_db():
+    """Ensure ScraperApp initializes cleanly on a brand-new, empty DB file without table errors."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        fresh_db = f.name
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        # ScraperApp must auto-create tables via init_db without throwing OperationalError
+        app = ScraperApp(root, db_path=fresh_db)
+        app._initial_load()
+        root.update()
+
+        assert app.lbl_stat_contacts.cget("text") == "0"
+        assert app.lbl_stat_projects.cget("text") == "0"
+        assert app.lbl_stat_raw.cget("text") == "0"
+        assert app.lbl_stat_reviews.cget("text") == "0"
+        assert len(app.tree_contacts.get_children()) == 0
+        assert len(app.tree_projects.get_children()) == 0
+        assert len(app.tree_reviews.get_children()) == 0
+
+    finally:
+        root.destroy()
+        if os.path.exists(fresh_db):
+            try:
+                os.remove(fresh_db)
+            except Exception:
+                pass
+
+
+def test_ui_persian_search_normalization(temp_ui_db):
+    """Test searching with Arabic Yeh (ي) against Persian Yeh (ی) and ZWNJ."""
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = ScraperApp(root, db_path=temp_ui_db)
+        app._initial_load()
+        root.update()
+
+        # Search contacts with Arabic Yeh 'پادياو' -> should match 'پادیاو'
+        app.ent_search_contacts.delete(0, tk.END)
+        app.ent_search_contacts.insert(0, "پادياو")
+        app._filter_contacts()
+        assert len(app.tree_contacts.get_children()) == 1
+
+        # Search contacts with Arabic Yeh in name 'رضايي' -> should match 'رضایی'
+        app.ent_search_contacts.delete(0, tk.END)
+        app.ent_search_contacts.insert(0, "رضايي")
+        app._filter_contacts()
+        assert len(app.tree_contacts.get_children()) == 1
+
+        # Search projects with Arabic Yeh 'مهندسين' -> should match 'مهندسین'
+        app.ent_search_projects.delete(0, tk.END)
+        app.ent_search_projects.insert(0, "مهندسين")
+        app._filter_projects()
+        assert len(app.tree_projects.get_children()) == 1
+
+    finally:
+        root.destroy()
+
+
+def test_ui_ambiguous_review_side_by_side_display(temp_ui_db):
+    """Verify that selecting an ambiguous review shows both existing record and candidate details."""
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        app = ScraperApp(root, db_path=temp_ui_db)
+        app._initial_load()
+        root.update()
+
+        # Select the review item
+        children = app.tree_reviews.get_children()
+        assert len(children) == 1
+        app.tree_reviews.selection_set(children[0])
+        app._on_review_selected(None)
+
+        detail_text = app.txt_review_detail.get("1.0", tk.END)
+        # Check existing record details are shown
+        assert "Existing Record in Database" in detail_text
+        assert "دفتر معماری پادیاو" in detail_text
+        # Check candidate details are shown
+        assert "Candidate Discovered Record" in detail_text
+        assert "علیرضا رضایی" in detail_text
+        # Check candidate raw JSON is shown
+        assert "Candidate Raw JSON Payload" in detail_text
+
+    finally:
+        root.destroy()
+

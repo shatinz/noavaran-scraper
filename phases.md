@@ -128,4 +128,5 @@
   - `[x]` Create automated test suite for UI (`tests/test_ui.py`) verifying tab initialization, search, filtering, and sorting
   - `[x]` Package standalone Windows executable with PyInstaller (`dist/NoavaranScraper.exe`)
   - `[x]` Verify `--noconsole` and frozen base directory resolution for seamless double-click execution
+  - `[x]` Harden UI & executable against uninitialized databases, enable SQLite WAL mode, attach parent console for CLI commands, and normalize Persian/Arabic queries in live search
 

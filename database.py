@@ -28,8 +28,13 @@ DEFAULT_DB_PATH = os.path.join(get_base_dir(), "data", "scraper_cache.db")
 
 def get_connection(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+    except Exception:
+        pass
     return conn
 
 
@@ -161,6 +166,7 @@ def save_ambiguous_review(candidate_type: str, existing_id: str, candidate_dict:
 
 
 def get_all_contacts(db_path: str = DEFAULT_DB_PATH) -> List[ContactEntity]:
+    init_db(db_path)
     conn = get_connection(db_path)
     cur = conn.cursor()
     cur.execute("SELECT * FROM contacts")
@@ -185,7 +191,33 @@ def get_all_contacts(db_path: str = DEFAULT_DB_PATH) -> List[ContactEntity]:
     return contacts
 
 
+def get_contact_by_id(contact_id: str, db_path: str = DEFAULT_DB_PATH) -> Optional[ContactEntity]:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+    r = cur.fetchone()
+    conn.close()
+    if not r:
+        return None
+    return ContactEntity(
+        id=r["id"],
+        entity_type=r["entity_type"],
+        name=r["name"] or "",
+        role=r["role"] or "",
+        company=r["company"] or "",
+        city=r["city"] or "Isfahan",
+        phone=r["phone"] or "",
+        email=r["email"] or "",
+        social_handle=r["social_handle"] or "",
+        source_url=r["source_url"] or "",
+        confidence=r["confidence"] or "medium",
+        last_verified=r["last_verified"] or datetime.now().strftime("%Y-%m-%d")
+    )
+
+
 def get_all_projects(db_path: str = DEFAULT_DB_PATH) -> List[ActiveProject]:
+    init_db(db_path)
     conn = get_connection(db_path)
     cur = conn.cursor()
     cur.execute("SELECT * FROM active_projects")
@@ -206,6 +238,29 @@ def get_all_projects(db_path: str = DEFAULT_DB_PATH) -> List[ActiveProject]:
         ))
     conn.close()
     return projects
+
+
+def get_project_by_id(project_id: str, db_path: str = DEFAULT_DB_PATH) -> Optional[ActiveProject]:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM active_projects WHERE id = ?", (project_id,))
+    r = cur.fetchone()
+    conn.close()
+    if not r:
+        return None
+    return ActiveProject(
+        id=r["id"],
+        project_name=r["project_name"],
+        city=r["city"] or "Isfahan",
+        scale_scope=r["scale_scope"] or "",
+        associated_contractors=r["associated_contractors"] or "",
+        associated_architects=r["associated_architects"] or "",
+        contact_info=r["contact_info"] or "",
+        source_url=r["source_url"] or "",
+        confidence=r["confidence"] or "medium",
+        date_found=r["date_found"] or datetime.now().strftime("%Y-%m-%d")
+    )
 
 
 def upsert_contact_db(contact: ContactEntity, db_path: str = DEFAULT_DB_PATH) -> str:
@@ -338,6 +393,7 @@ def update_frontier_status(url: str, status: str, db_path: str = DEFAULT_DB_PATH
 
 
 def get_ambiguous_reviews(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
+    init_db(db_path)
     conn = get_connection(db_path)
     cur = conn.cursor()
     cur.execute("SELECT id, candidate_type, existing_id, candidate_json, match_score, match_reason, created_at FROM ambiguous_reviews ORDER BY id DESC")
@@ -348,6 +404,7 @@ def get_ambiguous_reviews(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]
 
 
 def get_cache_stats(db_path: str = DEFAULT_DB_PATH) -> Dict[str, int]:
+    init_db(db_path)
     conn = get_connection(db_path)
     cur = conn.cursor()
     cur.execute("SELECT count(*) FROM contacts")
