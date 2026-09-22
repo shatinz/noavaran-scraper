@@ -82,13 +82,16 @@ def export_contacts_to_csv(csv_path: str = CONTACTS_CSV_PATH, db_path: str = DEF
     return len(contacts)
 
 
-def export_all_csvs(db_path: str = DEFAULT_DB_PATH) -> dict:
+def export_all_csvs(db_path: str = DEFAULT_DB_PATH, contacts_path: Optional[str] = None, projects_path: Optional[str] = None) -> dict:
     """Export both active_projects.csv and contacts.csv."""
-    proj_count = export_projects_to_csv(PROJECTS_CSV_PATH, db_path)
-    cont_count = export_contacts_to_csv(CONTACTS_CSV_PATH, db_path)
+    c_path = contacts_path or CONTACTS_CSV_PATH
+    p_path = projects_path or PROJECTS_CSV_PATH
+    proj_count = export_projects_to_csv(p_path, db_path)
+    cont_count = export_contacts_to_csv(c_path, db_path)
     return {
         "projects_exported": proj_count,
         "contacts_exported": cont_count,
-        "projects_file": PROJECTS_CSV_PATH,
-        "contacts_file": CONTACTS_CSV_PATH,
+        "projects_file": p_path,
+        "contacts_file": c_path,
     }
+

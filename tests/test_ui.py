@@ -253,3 +253,102 @@ def test_ui_ambiguous_review_side_by_side_display(tk_root, temp_ui_db):
     assert "علیرضا رضایی" in detail_text
     # Check candidate raw JSON is shown
     assert "Candidate Raw JSON Payload" in detail_text
+
+
+def test_ui_export_csv_actions(tk_root, temp_ui_db, monkeypatch):
+    """Test CSV export helpers from UI with mocked dialogs and isolated paths."""
+    monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *args, **kwargs: None)
+    monkeypatch.setattr("tkinter.messagebox.showwarning", lambda *args, **kwargs: None)
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f_c:
+        custom_c = f_c.name
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f_p:
+        custom_p = f_p.name
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f_def_c:
+        default_c = f_def_c.name
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f_def_p:
+        default_p = f_def_p.name
+
+    monkeypatch.setattr("ui.CONTACTS_CSV_PATH", default_c)
+    monkeypatch.setattr("ui.PROJECTS_CSV_PATH", default_p)
+    monkeypatch.setattr("exporters.CONTACTS_CSV_PATH", default_c)
+    monkeypatch.setattr("exporters.PROJECTS_CSV_PATH", default_p)
+
+    app = ScraperApp(tk_root, db_path=temp_ui_db)
+    app._initial_load()
+    tk_root.update()
+
+    try:
+        # Mock asksaveasfilename to test custom export
+        monkeypatch.setattr("tkinter.filedialog.asksaveasfilename", lambda **kwargs: custom_c)
+        app._export_contacts_custom()
+        assert os.path.exists(custom_c)
+        with open(custom_c, "r", encoding="utf-8") as f:
+            c_lines = f.readlines()
+            assert len(c_lines) == 3  # header + 2 entities
+
+        monkeypatch.setattr("tkinter.filedialog.asksaveasfilename", lambda **kwargs: custom_p)
+        app._export_projects_custom()
+        assert os.path.exists(custom_p)
+        with open(custom_p, "r", encoding="utf-8") as f:
+            p_lines = f.readlines()
+            assert len(p_lines) == 2  # header + 1 project
+
+        # Test quick exports
+        app._export_contacts_quick()
+        assert os.path.exists(default_c)
+        app._export_projects_quick()
+        assert os.path.exists(default_p)
+
+        # Test export all
+        app._export_all_now()
+        log_content = app.txt_log.get("1.0", tk.END)
+        assert "استخراج کامل هر دو فایل CSV انجام شد." in log_content
+    finally:
+        for p in [custom_c, custom_p, default_c, default_p]:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+
+
+def test_ui_clipboard_copy_actions(tk_root, temp_ui_db):
+    """Test copying phone, email, and project info to system clipboard from UI."""
+    app = ScraperApp(tk_root, db_path=temp_ui_db)
+    app._initial_load()
+    tk_root.update()
+
+    c_children = app.tree_contacts.get_children()
+    assert len(c_children) >= 1
+    app.tree_contacts.selection_set(c_children[0])
+
+    app._copy_selected_contact_phone()
+    assert tk_root.clipboard_get() in ("09131112233", "09123334455")
+
+    app._copy_selected_contact_email()
+    assert tk_root.clipboard_get() in ("padiav@example.com", "rezaei@arvin.ir")
+
+    p_children = app.tree_projects.get_children()
+    assert len(p_children) >= 1
+    app.tree_projects.selection_set(p_children[0])
+
+    app._copy_selected_project_info()
+    copied = tk_root.clipboard_get()
+    assert "مهستان" in copied
+
+
+def test_ui_graceful_close(tk_root, temp_ui_db):
+    """Verify close cancels pending timer jobs and tears down widgets without errors."""
+    app = ScraperApp(tk_root, db_path=temp_ui_db)
+    app._initial_load()
+    tk_root.update()
+
+    assert not app.stop_event.is_set()
+    assert app._poll_job is not None
+
+    app.close()
+    assert app.stop_event.is_set()
+    assert app._poll_job is None
+    assert app._init_job is None
+    assert not tk_root.winfo_exists()

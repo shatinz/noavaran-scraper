@@ -9,13 +9,44 @@ from database import get_connection, DEFAULT_DB_PATH, init_db, get_cache_stats
 import io
 
 def _setup_console_io():
-    # If run in windowed mode from terminal (PowerShell / CMD), attach to parent console so CLI commands work
-    if sys.platform == "win32" and (sys.stdout is None or getattr(sys.stdout, "closed", False)):
+    # If run in windowed mode from terminal or redirected to a pipe, attach handles so CLI output works
+    if sys.platform == "win32":
         try:
             import ctypes
-            if ctypes.windll.kernel32.AttachConsole(-1):
-                sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
-                sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+            import msvcrt
+
+            STD_OUTPUT_HANDLE = -11
+            STD_ERROR_HANDLE = -12
+            INVALID_HANDLE_VALUE = -1
+            FILE_TYPE_UNKNOWN = 0
+
+            h_out = ctypes.windll.kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+            if h_out and h_out != INVALID_HANDLE_VALUE and ctypes.windll.kernel32.GetFileType(h_out) != FILE_TYPE_UNKNOWN:
+                try:
+                    fd_out = msvcrt.open_osfhandle(h_out, 0)
+                    sys.stdout = open(fd_out, "w", encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+            elif sys.stdout is None or getattr(sys.stdout, "closed", False):
+                try:
+                    if ctypes.windll.kernel32.AttachConsole(-1):
+                        sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+
+            h_err = ctypes.windll.kernel32.GetStdHandle(STD_ERROR_HANDLE)
+            if h_err and h_err != INVALID_HANDLE_VALUE and ctypes.windll.kernel32.GetFileType(h_err) != FILE_TYPE_UNKNOWN:
+                try:
+                    fd_err = msvcrt.open_osfhandle(h_err, 0)
+                    sys.stderr = open(fd_err, "w", encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+            elif sys.stderr is None or getattr(sys.stderr, "closed", False):
+                try:
+                    if ctypes.windll.kernel32.AttachConsole(-1):
+                        sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
         except Exception:
             pass
 

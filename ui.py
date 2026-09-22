@@ -83,13 +83,13 @@ class ScraperApp:
         self._build_statusbar()
 
         # Start queue polling loop
-        self.root.after(50, self._poll_queue)
+        self._poll_job = self.root.after(50, self._poll_queue)
 
         # Protocol for graceful window closing
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # Initial load of stats & tables
-        self.root.after(200, self._initial_load)
+        self._init_job = self.root.after(200, self._initial_load)
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -608,6 +608,13 @@ class ScraperApp:
     # ========================== Data Loading & Stats ==========================
 
     def _initial_load(self):
+        if self.stop_event.is_set():
+            return
+        try:
+            if not self.root.winfo_exists():
+                return
+        except Exception:
+            return
         self._refresh_stats()
         self._load_contacts_from_db()
         self._load_projects_from_db()
@@ -1042,6 +1049,13 @@ class ScraperApp:
         self.worker_thread.start()
 
     def _poll_queue(self):
+        if self.stop_event.is_set():
+            return
+        try:
+            if not self.root.winfo_exists():
+                return
+        except Exception:
+            return
         try:
             while True:
                 msg_type, payload = self.msg_queue.get_nowait()
@@ -1098,7 +1112,8 @@ class ScraperApp:
         finally:
             if not self.stop_event.is_set():
                 try:
-                    self.root.after(50, self._poll_queue)
+                    if self.root.winfo_exists():
+                        self._poll_job = self.root.after(50, self._poll_queue)
                 except Exception:
                     pass
 
@@ -1195,14 +1210,32 @@ class ScraperApp:
         except Exception as e:
             messagebox.showerror("خطا", f"امکان باز کردن فایل وجود ندارد: {e}")
 
+    def close(self):
+        self.stop_event.set()
+        if hasattr(self, "_poll_job") and self._poll_job:
+            try:
+                self.root.after_cancel(self._poll_job)
+            except Exception:
+                pass
+            self._poll_job = None
+        if hasattr(self, "_init_job") and self._init_job:
+            try:
+                self.root.after_cancel(self._init_job)
+            except Exception:
+                pass
+            self._init_job = None
+        try:
+            if self.root.winfo_exists():
+                self.root.destroy()
+        except Exception:
+            pass
+
     def _on_close(self):
         if self.is_busy:
             if messagebox.askyesno("خروج از برنامه", "پویشگر در حال اجراست. آیا می‌خواهید عملیات متوقف و برنامه بسته شود؟"):
-                self.stop_event.set()
-                self.root.destroy()
+                self.close()
         else:
-            self.stop_event.set()
-            self.root.destroy()
+            self.close()
 
 
 def launch_ui(db_path: Optional[str] = None):
