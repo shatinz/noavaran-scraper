@@ -1,11 +1,11 @@
 import csv
 import os
 from typing import List, Optional
-from database import get_all_contacts, get_all_projects, DEFAULT_DB_PATH
+from database import get_all_contacts, get_all_projects, DEFAULT_DB_PATH, get_base_dir
 from models import ContactEntity, ActiveProject
 
-PROJECTS_CSV_PATH = os.path.join(os.path.dirname(__file__), "active_projects.csv")
-CONTACTS_CSV_PATH = os.path.join(os.path.dirname(__file__), "contacts.csv")
+PROJECTS_CSV_PATH = os.path.join(get_base_dir(), "active_projects.csv")
+CONTACTS_CSV_PATH = os.path.join(get_base_dir(), "contacts.csv")
 
 PROJECTS_CSV_HEADERS = [
     "project name",

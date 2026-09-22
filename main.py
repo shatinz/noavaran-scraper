@@ -6,13 +6,27 @@ from exporters import export_all_csvs
 from validate_benchmark import run_benchmark_audit
 from database import get_connection, DEFAULT_DB_PATH
 
-# Ensure UTF-8 output on Windows terminal
-sys.stdout.reconfigure(encoding='utf-8')
+import io
+
+# Ensure UTF-8 output on Windows terminal and prevent NoneType errors in windowed mode
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+elif hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Noavaran Panjereh Lead Discovery Scraper")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Command: ui
+    subparsers.add_parser("ui", help="Launch the graphical user interface (GUI)")
 
     # Command: run
     run_parser = subparsers.add_parser("run", help="Run the autonomous lead crawler")
@@ -34,9 +48,19 @@ def main():
     # Command: validate
     subparsers.add_parser("validate", help="Run benchmark audit against known Isfahan entities")
 
+    # If double-clicked without arguments, launch GUI directly
+    if len(sys.argv) == 1:
+        from ui import launch_ui
+        launch_ui()
+        return
+
     args = parser.parse_args()
 
-    if args.command == "run" or args.command is None:
+    if args.command == "ui":
+        from ui import launch_ui
+        launch_ui()
+
+    elif args.command == "run":
         max_passes = getattr(args, "max_passes", 12)
         streak_limit = getattr(args, "streak_limit", 4)
         budget_sec = getattr(args, "budget_sec", 180)

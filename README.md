@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.14-blue.svg)
 ![Architecture](https://img.shields.io/badge/Architecture-Heuristic%20Zero--Token-emerald.svg)
-![Tests](https://img.shields.io/badge/Tests-15%20Passing-success.svg)
+![Tests](https://img.shields.io/badge/Tests-36%20Passing-success.svg)
 ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
 
 ---
@@ -168,18 +168,66 @@ python main.py stats
 python main.py validate
 ```
 
+### Launch Graphical User Interface (GUI)
+```bash
+# Launch directly via CLI command
+python main.py ui
+
+# Or run the UI script directly
+python ui.py
+```
+
+### Standalone Windows Executable (`.exe`)
+The application is packaged as a standalone Windows `.exe` (`dist/NoavaranScraper.exe`).
+- **Zero Python Installation Required**: Double-click `NoavaranScraper.exe` in Windows Explorer to launch the full GUI dashboard.
+- **Console-Free**: Runs natively without a terminal console window.
+- **Portability**: Automatically creates and manages `data/scraper_cache.db`, `contacts.csv`, and `active_projects.csv` right next to the executable.
+- **Rebuilding the Executable**:
+  ```powershell
+  python -m PyInstaller --clean --onefile --noconsole --name NoavaranScraper --hidden-import ddgs --hidden-import rapidfuzz --hidden-import pydantic --hidden-import bs4 --hidden-import requests main.py
+  ```
+
 ---
 
-## 🧪 7. Verification & Benchmark Record
+## 🖥️ 7. Desktop GUI Features
 
-### Automated Test Suite
+The desktop application includes 5 comprehensive functional views:
+1. **🚀 Crawl Dashboard & Controls (کنترل پویشگر)**:
+   - Configurable parameters (Max passes, streak termination, time budget, Telegram channels, results per query, frontier limit).
+   - Start / Stop controls with background worker thread and thread-safe cancellation.
+   - Real-time animated progress bar and live status updates.
+   - Live colorized console output with auto-scroll, clear, and copy-to-clipboard tools.
+   - 1-Click Cache Rebuild and Isfahan Benchmark validation buttons.
+2. **👥 Contacts & Leads Explorer (مخاطبین و سرنخ‌ها)**:
+   - Multi-field search filtering (Name, Company, Role, City, Phone, Email).
+   - Category filtering (`office`, `contractor`, `student`, `individual`) and City filtering (`Isfahan`, `Tehran`, `Other`).
+   - Clickable column sorting on all fields.
+   - Selected entity inspector with 1-click Phone copy, Email copy, and Source URL browser opener.
+3. **🏗️ Active Projects Explorer (پروژه‌های فعال ساختمانی)**:
+   - Multi-field search filtering (Project Name, Contractor, Architect, City, Scope).
+   - City filtering and clickable column sorting.
+   - Selected project inspector showing full contractors, architects, scale, and contact info.
+4. **⚖️ Ambiguous Reviews Quarantine (بررسی برخوردهای مبهم)**:
+   - View quarantined candidate entities with fuzzy composite match score between 70% and 87%.
+   - Full raw JSON payload inspection for human review and auditing.
+5. **📁 CSV Export & Directory Tools (خروجی‌ها و فایل‌ها)**:
+   - 1-Click export and custom "Save As..." export for `contacts.csv` and `active_projects.csv`.
+   - Direct button to open the application directory or view CSV files in Excel.
+
+---
+
+## 🧪 8. Verification & Benchmark Record
+
+### Automated Test Suite (36 Tests Passing)
 ```bash
-python -m pytest tests/
+python -m pytest tests/ -v
 ```
-- `tests/test_dedup.py`: Verifies phone exact-merge, email exact-merge, fuzzy composite merge, ambiguous quarantine, and URL preservation (7/7 passed).
-- `tests/test_geo_filter.py`: Verifies Isfahan sweep, large-scale project classifier, and top-tier student gatekeeping (5/5 passed).
-- `tests/test_harvesters_and_exporters.py`: Verifies phone/email regexes, LinkedIn/Instagram SERP parsers, and CSV exporters (3/3 passed).
-- **Result:** 15 passing tests (100% pass rate).
+- `tests/test_dedup.py` (12 tests): Verifies phone exact-merge, email exact-merge, fuzzy composite merge, ambiguous quarantine, project dedup, multi-phone/email lossless merge, punctuation stripping, generic title guards, and URL preservation.
+- `tests/test_fixes_verification.py` (9 tests): Verifies city snippet normalization, LinkedIn classification, non-entity filtering, cross-lingual matching (Razan / رازان), corporate ID phone rejection, and clean name formatting.
+- `tests/test_geo_filter.py` (5 tests): Verifies Isfahan sweep, large-scale project classifier, top-tier student gatekeeping, entity admission, and project admission.
+- `tests/test_harvesters_and_exporters.py` (6 tests): Verifies regex extraction, LinkedIn/Instagram SERP parsers, CSV exporters, architect/contractor party parser, and frontier queue operations.
+- `tests/test_ui.py` (4 tests): Verifies GUI initialization, tab layout, live search, multi-criteria filtering, and table column sorting.
+- **Result:** 36 passing tests (100% pass rate).
 
 ### Benchmark Precision Audit
 Harvested data was cross-validated against 15 hand-picked Isfahan entities (Razan Architects, Padiav Architecture, Naghsh-e Jahan Consulting Engineers, Sharestan Studio, Isfahan Engineering Organization, Isfahan Architecture Academy, Nama Gostaran, etc.):
@@ -190,7 +238,7 @@ Harvested data was cross-validated against 15 hand-picked Isfahan entities (Raza
 
 ---
 
-## 🛡️ 8. Security Sentinel Audit
-- **SAST Scan (Bandit)**: 0 High, 0 Medium issues across 1,950 lines of code.
+## 🛡️ 9. Security Sentinel Audit
+- **SAST Scan (Bandit)**: 0 High, 0 Medium issues across all Python source files.
 - **Secret Scan**: 0 leaked API keys, tokens, or credentials.
 - **Dependency Audit**: Clean pinned packages in `requirements.txt`.

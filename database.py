@@ -13,9 +13,17 @@ from normalizer import (
     clean_company_for_matching,
     normalize_city,
 )
+import sys
 from models import ContactEntity, ActiveProject
 
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "scraper_cache.db")
+
+def get_base_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+DEFAULT_DB_PATH = os.path.join(get_base_dir(), "data", "scraper_cache.db")
 
 
 def get_connection(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -327,3 +335,37 @@ def update_frontier_status(url: str, status: str, db_path: str = DEFAULT_DB_PATH
     """, (status, datetime.now().isoformat(), url))
     conn.commit()
     conn.close()
+
+
+def get_ambiguous_reviews(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT id, candidate_type, existing_id, candidate_json, match_score, match_reason, created_at FROM ambiguous_reviews ORDER BY id DESC")
+    rows = cur.fetchall()
+    results = [dict(r) for r in rows]
+    conn.close()
+    return results
+
+
+def get_cache_stats(db_path: str = DEFAULT_DB_PATH) -> Dict[str, int]:
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM contacts")
+    c_count = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM active_projects")
+    p_count = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM raw_records")
+    raw_count = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM ambiguous_reviews")
+    amb_count = cur.fetchone()[0]
+    cur.execute("SELECT count(*) FROM frontier")
+    front_count = cur.fetchone()[0]
+    conn.close()
+    return {
+        "contacts": c_count,
+        "projects": p_count,
+        "raw_records": raw_count,
+        "ambiguous_reviews": amb_count,
+        "frontier": front_count,
+    }
+

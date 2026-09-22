@@ -17,6 +17,7 @@
 | **4** | Geographic Priority & Tier-Gating Engine | `[x] Completed` | Exhaustive Isfahan sweep, large-scale project filter, top-tier student gatekeeper (awards/universities), and opportunistic international firm finder |
 | **5** | Crawler Orchestrator & Benchmark Validation | `[x] Completed` | Persistent frontier crawl queue, budget stop conditions (streak/timeout), and small-batch validation against 10-20 known Isfahan benchmark entities |
 | **6** | Iteration Loop, Precision Tuning & Git Sync | `[x] Completed` | Iterative gap analysis, pattern tuning, Security Sentinel scan, and remote repository push |
+| **7** | Desktop GUI & Windows Standalone Executable | `[x] Completed` | Modern multi-tab Tkinter/TTK desktop UI (`ui.py`), real-time console streaming & controls, search/sort filters, and standalone Windows `.exe` (`dist/NoavaranScraper.exe`) |
 
 ---
 
@@ -110,3 +111,21 @@
   - `[x]` Re-run full pipeline and verify both `active_projects.csv` and `contacts.csv`
   - `[x]` Run security scan via `security-sentinel`
   - `[x]` Commit all files and push repository to GitHub
+
+---
+
+## 🎯 Phase 7: Desktop GUI & Windows Standalone Executable
+- **Boundaries**:
+  - Inside: Graphical User Interface (`ui.py`), real-time multithreaded crawler execution, live console stream, entity inspection tables with sorting/filtering, ambiguous review viewer, CSV export dialogs, automated UI tests (`tests/test_ui.py`), and standalone Windows `.exe` packaging (`dist/NoavaranScraper.exe`).
+  - Outside: Modifying core network harvester protocols.
+- **Tasks**:
+  - `[x]` Build modern multi-tab desktop UI (`ui.py`) using `tkinter` + `ttk` with Windows high-DPI scaling
+  - `[x]` Implement thread-safe execution (`threading.Thread`, `queue.Queue`) for non-blocking crawler runs, cache rebuilds, and benchmark validation
+  - `[x]` Implement graceful scraper cancellation (`stop_event`)
+  - `[x]` Build searchable & sortable Treeviews for Contacts and Active Projects with live details viewer
+  - `[x]` Add Ambiguous Matches review tab for inspecting 70-87% confidence entity clashes
+  - `[x]` Add CSV Export & Directory Explorer tab with 1-click and custom file dialog export
+  - `[x]` Create automated test suite for UI (`tests/test_ui.py`) verifying tab initialization, search, filtering, and sorting
+  - `[x]` Package standalone Windows executable with PyInstaller (`dist/NoavaranScraper.exe`)
+  - `[x]` Verify `--noconsole` and frozen base directory resolution for seamless double-click execution
+

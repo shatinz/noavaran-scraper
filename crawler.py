@@ -81,6 +81,9 @@ class LeadDiscoveryCrawler:
         max_telegram_channels: int = 4,
         max_results_per_query: int = 5,
         max_frontier_items: int = 10,
+        stop_event: Optional[Any] = None,
+        log_fn: Optional[Any] = None,
+        progress_fn: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Execute an autonomous crawler run with budget constraints and streak termination:
@@ -94,17 +97,39 @@ class LeadDiscoveryCrawler:
         run_id = run_id or f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         start_time = time.time()
 
+        def emit(msg: str) -> None:
+            print(msg)
+            if log_fn:
+                try:
+                    log_fn(msg)
+                except Exception:
+                    pass
+
+        def set_progress(val: float, status: str) -> None:
+            if progress_fn:
+                try:
+                    progress_fn(val, status)
+                except Exception:
+                    pass
+
         total_contacts_discovered = 0
         total_projects_discovered = 0
         new_entities_this_run = 0
         streak_zero_count = 0
+        cancelled = False
 
         # Step 1: Telegram Channel Harvest (Fast direct HTTP previews)
-        print(f"[{run_id}] Starting Telegram Harvester Pass...")
+        emit(f"[{run_id}] Starting Telegram Harvester Pass...")
+        set_progress(0.05, "Telegram Harvester Pass...")
         tg_channels = DEFAULT_TELEGRAM_CHANNELS[:max_telegram_channels]
-        for ch in tg_channels:
+        for ch_idx, ch in enumerate(tg_channels):
+            if stop_event and stop_event.is_set():
+                emit(f"[{run_id}] Crawl stopped by user.")
+                cancelled = True
+                break
+
             if time.time() - start_time > time_budget_sec:
-                print("Time budget reached during Telegram pass.")
+                emit("Time budget reached during Telegram pass.")
                 break
 
             posts, _ = self.telegram_scraper.fetch_channel_messages(ch)
@@ -131,190 +156,209 @@ class LeadDiscoveryCrawler:
                 if links:
                     add_frontier_urls(links, self.db_path)
 
-            print(f"  Channel @{ch}: found {len(posts)} messages -> +{ch_contacts} contacts, +{ch_projects} projects")
+            emit(f"  Channel @{ch}: found {len(posts)} messages -> +{ch_contacts} contacts, +{ch_projects} projects")
+            set_progress(0.05 + 0.15 * ((ch_idx + 1) / max(len(tg_channels), 1)), f"Scraped Telegram @{ch}")
 
         # Step 2: Search Engine Queries Pass
-        print(f"[{run_id}] Starting Search Engine Harvester Passes...")
-        queries_to_run = SEED_QUERIES[:max_passes]
+        if not cancelled:
+            emit(f"[{run_id}] Starting Search Engine Harvester Passes...")
+            queries_to_run = SEED_QUERIES[:max_passes]
 
-        for i, q_def in enumerate(queries_to_run):
-            elapsed = time.time() - start_time
-            if elapsed > time_budget_sec:
-                print(f"Time budget reached ({elapsed:.1f}s > {time_budget_sec}s). Stopping search pass.")
-                break
+            for i, q_def in enumerate(queries_to_run):
+                if stop_event and stop_event.is_set():
+                    emit(f"[{run_id}] Crawl stopped by user.")
+                    cancelled = True
+                    break
 
-            if streak_zero_count >= streak_limit:
-                print(f"Streak termination condition reached ({streak_zero_count} consecutive passes with 0 new entities).")
-                break
+                elapsed = time.time() - start_time
+                if elapsed > time_budget_sec:
+                    emit(f"Time budget reached ({elapsed:.1f}s > {time_budget_sec}s). Stopping search pass.")
+                    break
 
-            q_type = q_def["type"]
-            query_str = q_def["q"]
-            category = q_def["category"]
+                if streak_zero_count >= streak_limit:
+                    emit(f"Streak termination condition reached ({streak_zero_count} consecutive passes with 0 new entities).")
+                    break
 
-            print(f"  Pass {i+1}/{len(queries_to_run)} [{q_type}] '{query_str[:40]}...'")
-            results = self.search_harvester.search_query(query_str, max_results=max_results_per_query)
+                q_type = q_def["type"]
+                query_str = q_def["q"]
+                category = q_def["category"]
 
-            pass_new_entities = 0
+                emit(f"  Pass {i+1}/{len(queries_to_run)} [{q_type}] '{query_str[:40]}...'")
+                set_progress(0.20 + 0.60 * ((i + 1) / max(len(queries_to_run), 1)), f"Search Pass {i+1}/{len(queries_to_run)}")
+                results = self.search_harvester.search_query(query_str, max_results=max_results_per_query)
 
-            for item in results:
-                discovered_url = item.get("href", "")
-                if not discovered_url:
-                    continue
+                pass_new_entities = 0
 
-                self.dedup.log_raw_entry(run_id, q_type, discovered_url, item)
+                for item in results:
+                    discovered_url = item.get("href", "")
+                    if not discovered_url:
+                        continue
 
-                # Queue target websites to frontier for deep crawl
-                if "instagram.com" not in discovered_url and "linkedin.com" not in discovered_url and not is_excluded_domain(discovered_url):
-                    add_frontier_urls([{
-                        "url": discovered_url,
-                        "source_type": "web",
-                        "category": category,
-                        "depth": 0,
-                    }], self.db_path)
+                    self.dedup.log_raw_entry(run_id, q_type, discovered_url, item)
 
-                if q_type in ("linkedin", "linkedin_company"):
-                    contact = self.search_harvester.parse_linkedin_snippet(item)
-                    if contact:
-                        _, action = self.dedup.process_contact(contact, run_id, q_type)
-                        total_contacts_discovered += 1
-                        if action in ("created_new", "merged_fuzzy"):
-                            pass_new_entities += 1
+                    # Queue target websites to frontier for deep crawl
+                    if "instagram.com" not in discovered_url and "linkedin.com" not in discovered_url and not is_excluded_domain(discovered_url):
+                        add_frontier_urls([{
+                            "url": discovered_url,
+                            "source_type": "web",
+                            "category": category,
+                            "depth": 0,
+                        }], self.db_path)
 
-                elif q_type == "instagram":
-                    contact = self.search_harvester.parse_instagram_snippet(item)
-                    if contact:
-                        _, action = self.dedup.process_contact(contact, run_id, q_type)
-                        total_contacts_discovered += 1
-                        if action in ("created_new", "merged_fuzzy"):
-                            pass_new_entities += 1
+                    if q_type in ("linkedin", "linkedin_company"):
+                        contact = self.search_harvester.parse_linkedin_snippet(item)
+                        if contact:
+                            _, action = self.dedup.process_contact(contact, run_id, q_type)
+                            total_contacts_discovered += 1
+                            if action in ("created_new", "merged_fuzzy"):
+                                pass_new_entities += 1
 
-                elif q_type == "search_project":
-                    project = self.search_harvester.parse_web_project_snippet(item)
-                    if project:
-                        _, action = self.dedup.process_project(project, run_id, q_type)
-                        total_projects_discovered += 1
-                        if action in ("created_new", "merged_fuzzy"):
-                            pass_new_entities += 1
+                    elif q_type == "instagram":
+                        contact = self.search_harvester.parse_instagram_snippet(item)
+                        if contact:
+                            _, action = self.dedup.process_contact(contact, run_id, q_type)
+                            total_contacts_discovered += 1
+                            if action in ("created_new", "merged_fuzzy"):
+                                pass_new_entities += 1
 
-                elif q_type == "search_web":
-                    body = item.get("body", "")
-                    title = item.get("title", "")
-                    combined = f"{title} {body}"
-                    from harvesters.text_parser import extract_phones, extract_emails, extract_social_handles
-                    ph = extract_phones(combined)
-                    em = extract_emails(combined)
-                    hd = extract_social_handles(combined)
-                    if ph or em or hd:
-                        from models import ContactEntity
-                        from geo_filter import classify_geography
-                        from normalizer import clean_entity_name, GENERIC_TITLES
-                        geo_tier = classify_geography(combined)
-                        title_parts = [p.strip() for p in re.split(r'[-–—|؛:،]', title) if p.strip()]
-                        valid_parts = [p for p in title_parts if clean_entity_name(p).lower() not in GENERIC_TITLES and p.lower() not in GENERIC_TITLES]
-                        raw_c_name = valid_parts[0] if valid_parts else title
-                        c_name = clean_entity_name(raw_c_name)
-                        e_type = "office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor"
-                        if "/company/" in discovered_url.lower():
-                            e_type = "contractor" if any(k in combined for k in ["پیمانکار", "مجری", "سازه", "صنعتی", "تولید", "ساختمانی", "فولاد"]) else "office"
-                        c = ContactEntity(
-                            entity_type=e_type,
-                            name=c_name or "دفتر معماری / پیمانکار",
-                            role="دفتر معماری / پیمانکار",
-                            company=c_name,
-                            city="Isfahan" if geo_tier == "isfahan" else normalize_city(combined),
-                            phone="; ".join(ph),
-                            email="; ".join(em),
-                            social_handle="; ".join(hd),
-                            source_url=discovered_url,
-                            confidence="verified" if ph else "high",
-                        )
-                        _, action = self.dedup.process_contact(c, run_id, q_type)
-                        total_contacts_discovered += 1
-                        if action in ("created_new", "merged_fuzzy"):
-                            pass_new_entities += 1
+                    elif q_type == "search_project":
+                        project = self.search_harvester.parse_web_project_snippet(item)
+                        if project:
+                            _, action = self.dedup.process_project(project, run_id, q_type)
+                            total_projects_discovered += 1
+                            if action in ("created_new", "merged_fuzzy"):
+                                pass_new_entities += 1
 
-            if pass_new_entities == 0:
-                streak_zero_count += 1
-            else:
-                streak_zero_count = 0
-                new_entities_this_run += pass_new_entities
+                    elif q_type == "search_web":
+                        body = item.get("body", "")
+                        title = item.get("title", "")
+                        combined = f"{title} {body}"
+                        from harvesters.text_parser import extract_phones, extract_emails, extract_social_handles
+                        ph = extract_phones(combined)
+                        em = extract_emails(combined)
+                        hd = extract_social_handles(combined)
+                        if ph or em or hd:
+                            from models import ContactEntity
+                            from geo_filter import classify_geography
+                            from normalizer import clean_entity_name, GENERIC_TITLES
+                            geo_tier = classify_geography(combined)
+                            title_parts = [p.strip() for p in re.split(r'[-–—|؛:،]', title) if p.strip()]
+                            valid_parts = [p for p in title_parts if clean_entity_name(p).lower() not in GENERIC_TITLES and p.lower() not in GENERIC_TITLES]
+                            raw_c_name = valid_parts[0] if valid_parts else title
+                            c_name = clean_entity_name(raw_c_name)
+                            e_type = "office" if any(k in combined for k in ["معماری", "مشاور", "طراحی"]) else "contractor"
+                            if "/company/" in discovered_url.lower():
+                                e_type = "contractor" if any(k in combined for k in ["پیمانکار", "مجری", "سازه", "صنعتی", "تولید", "ساختمانی", "فولاد"]) else "office"
+                            c = ContactEntity(
+                                entity_type=e_type,
+                                name=c_name or "دفتر معماری / پیمانکار",
+                                role="دفتر معماری / پیمانکار",
+                                company=c_name,
+                                city="Isfahan" if geo_tier == "isfahan" else normalize_city(combined),
+                                phone="; ".join(ph),
+                                email="; ".join(em),
+                                social_handle="; ".join(hd),
+                                source_url=discovered_url,
+                                confidence="verified" if ph else "high",
+                            )
+                            _, action = self.dedup.process_contact(c, run_id, q_type)
+                            total_contacts_discovered += 1
+                            if action in ("created_new", "merged_fuzzy"):
+                                pass_new_entities += 1
 
-            print(f"    -> Discovered +{pass_new_entities} new entities (zero-streak: {streak_zero_count})")
+                if pass_new_entities == 0:
+                    streak_zero_count += 1
+                else:
+                    streak_zero_count = 0
+                    new_entities_this_run += pass_new_entities
+
+                emit(f"    -> Discovered +{pass_new_entities} new entities (zero-streak: {streak_zero_count})")
 
         # Step 3: Frontier Queue Deep Extraction Pass
-        print(f"[{run_id}] Starting Frontier Queue Deep Extraction Pass...")
-        pending_items = get_pending_frontier(limit=max_frontier_items, db_path=self.db_path)
-        print(f"  Found {len(pending_items)} pending URLs in frontier queue...")
+        if not cancelled:
+            emit(f"[{run_id}] Starting Frontier Queue Deep Extraction Pass...")
+            pending_items = get_pending_frontier(limit=max_frontier_items, db_path=self.db_path)
+            emit(f"  Found {len(pending_items)} pending URLs in frontier queue...")
 
-        frontier_new = 0
-        for f_item in pending_items:
-            if time.time() - start_time > time_budget_sec:
-                print("Time budget reached during frontier pass.")
-                break
+            frontier_new = 0
+            for f_idx, f_item in enumerate(pending_items):
+                if stop_event and stop_event.is_set():
+                    emit(f"[{run_id}] Crawl stopped by user.")
+                    cancelled = True
+                    break
 
-            f_url = f_item["url"]
-            f_type = f_item.get("source_type", "web")
-            f_depth = f_item.get("depth", 0)
+                if time.time() - start_time > time_budget_sec:
+                    emit("Time budget reached during frontier pass.")
+                    break
 
-            if f_type == "web":
-                try:
-                    f_contacts, f_projects, f_sub_links = self.web_extractor.extract_from_website(f_url)
-                    for c in f_contacts:
-                        _, action = self.dedup.process_contact(c, run_id=run_id, source_type="web_frontier")
-                        total_contacts_discovered += 1
-                        if action in ("created_new", "merged_fuzzy"):
-                            frontier_new += 1
-                            new_entities_this_run += 1
-                    for pr in f_projects:
-                        _, action = self.dedup.process_project(pr, run_id=run_id, source_type="web_frontier")
-                        total_projects_discovered += 1
-                        if action in ("created_new", "merged_fuzzy"):
-                            frontier_new += 1
-                            new_entities_this_run += 1
+                f_url = f_item["url"]
+                f_type = f_item.get("source_type", "web")
+                f_depth = f_item.get("depth", 0)
 
-                    # Queue high-value subpages (/contact, /about, /projects) to frontier at depth + 1
-                    if f_depth < 2 and f_sub_links:
-                        sub_items = [{
-                            "url": sl,
-                            "source_type": "web",
-                            "category": f_item.get("category", "general"),
-                            "depth": f_depth + 1,
-                        } for sl in f_sub_links[:5]]
-                        add_frontier_urls(sub_items, self.db_path)
-
-                    update_frontier_status(f_url, "visited", self.db_path)
-                except Exception:
-                    update_frontier_status(f_url, "failed", self.db_path)
-
-            elif f_type == "telegram":
-                try:
-                    posts, _ = self.telegram_scraper.fetch_channel_messages(f_url)
-                    for p in posts:
-                        f_contacts, f_projects = self.telegram_scraper.extract_entities_and_projects(p)
+                set_progress(0.80 + 0.15 * ((f_idx + 1) / max(len(pending_items), 1)), f"Crawling frontier {f_idx+1}/{len(pending_items)}")
+                if f_type == "web":
+                    try:
+                        f_contacts, f_projects, f_sub_links = self.web_extractor.extract_from_website(f_url)
                         for c in f_contacts:
-                            _, action = self.dedup.process_contact(c, run_id=run_id, source_type="tg_frontier")
+                            _, action = self.dedup.process_contact(c, run_id=run_id, source_type="web_frontier")
                             total_contacts_discovered += 1
                             if action in ("created_new", "merged_fuzzy"):
                                 frontier_new += 1
                                 new_entities_this_run += 1
                         for pr in f_projects:
-                            _, action = self.dedup.process_project(pr, run_id=run_id, source_type="tg_frontier")
+                            _, action = self.dedup.process_project(pr, run_id=run_id, source_type="web_frontier")
                             total_projects_discovered += 1
                             if action in ("created_new", "merged_fuzzy"):
                                 frontier_new += 1
                                 new_entities_this_run += 1
-                    update_frontier_status(f_url, "visited", self.db_path)
-                except Exception:
-                    update_frontier_status(f_url, "failed", self.db_path)
 
-        print(f"  Frontier pass completed -> +{frontier_new} new entities discovered from deep crawl")
+                        # Queue high-value subpages (/contact, /about, /projects) to frontier at depth + 1
+                        if f_depth < 2 and f_sub_links:
+                            sub_items = [{
+                                "url": sl,
+                                "source_type": "web",
+                                "category": f_item.get("category", "general"),
+                                "depth": f_depth + 1,
+                            } for sl in f_sub_links[:5]]
+                            add_frontier_urls(sub_items, self.db_path)
+
+                        update_frontier_status(f_url, "visited", self.db_path)
+                    except Exception:
+                        update_frontier_status(f_url, "failed", self.db_path)
+
+                elif f_type == "telegram":
+                    try:
+                        posts, _ = self.telegram_scraper.fetch_channel_messages(f_url)
+                        for p in posts:
+                            f_contacts, f_projects = self.telegram_scraper.extract_entities_and_projects(p)
+                            for c in f_contacts:
+                                _, action = self.dedup.process_contact(c, run_id=run_id, source_type="tg_frontier")
+                                total_contacts_discovered += 1
+                                if action in ("created_new", "merged_fuzzy"):
+                                    frontier_new += 1
+                                    new_entities_this_run += 1
+                            for pr in f_projects:
+                                _, action = self.dedup.process_project(pr, run_id=run_id, source_type="tg_frontier")
+                                total_projects_discovered += 1
+                                if action in ("created_new", "merged_fuzzy"):
+                                    frontier_new += 1
+                                    new_entities_this_run += 1
+                        update_frontier_status(f_url, "visited", self.db_path)
+                    except Exception:
+                        update_frontier_status(f_url, "failed", self.db_path)
+
+            emit(f"  Frontier pass completed -> +{frontier_new} new entities discovered from deep crawl")
 
         # Step 4: Export CSVs
+        emit(f"[{run_id}] Exporting latest CSV files...")
+        set_progress(0.98, "Exporting CSVs...")
         export_stats = export_all_csvs(self.db_path)
+        set_progress(1.0, "Crawl complete" if not cancelled else "Crawl stopped")
 
         summary = {
             "run_id": run_id,
             "duration_sec": round(time.time() - start_time, 2),
+            "cancelled": cancelled,
             "new_entities_this_run": new_entities_this_run,
             "total_contacts_discovered": total_contacts_discovered,
             "total_projects_discovered": total_projects_discovered,
@@ -325,7 +369,12 @@ class LeadDiscoveryCrawler:
         }
         return summary
 
-    def rebuild_cache_from_raw(self) -> Dict[str, Any]:
+    def rebuild_cache_from_raw(
+        self,
+        stop_event: Optional[Any] = None,
+        log_fn: Optional[Any] = None,
+        progress_fn: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """
         Re-process all pre-merge raw records using the latest normalization,
         extraction, and deduplication logic, then re-export CSVs.
@@ -342,6 +391,21 @@ class LeadDiscoveryCrawler:
         )
         from geo_filter import classify_geography
         from normalizer import clean_entity_name, clean_person_name, normalize_city, normalize_phone, GENERIC_TITLES
+
+        def emit(msg: str) -> None:
+            print(msg)
+            if log_fn:
+                try:
+                    log_fn(msg)
+                except Exception:
+                    pass
+
+        def set_progress(val: float, status: str) -> None:
+            if progress_fn:
+                try:
+                    progress_fn(val, status)
+                except Exception:
+                    pass
 
         conn = sqlite3.connect(self.db_path)
         cur = conn.cursor()
@@ -364,8 +428,16 @@ class LeadDiscoveryCrawler:
 
         processed_contacts = 0
         processed_projects = 0
+        total_rows = len(raw_rows)
+        emit(f"Rebuilding cache from {total_rows} logged raw records...")
 
-        for r_id, run_id, s_type, s_url, r_json in raw_rows:
+        for idx, (r_id, run_id, s_type, s_url, r_json) in enumerate(raw_rows):
+            if stop_event and stop_event.is_set():
+                emit("Rebuild cancelled by user request.")
+                break
+
+            if idx % 10 == 0 or idx == total_rows - 1:
+                set_progress((idx + 1) / max(total_rows, 1), f"Processing raw record {idx+1}/{total_rows}")
             try:
                 data = json.loads(r_json)
             except Exception:
@@ -449,6 +521,8 @@ class LeadDiscoveryCrawler:
                         self.dedup.process_contact(c_entity, run_id, s_type)
                         processed_contacts += 1
 
+        emit(f"Cache rebuild complete: {processed_contacts} contacts, {processed_projects} projects rebuilt.")
+        set_progress(1.0, "Cache rebuild complete")
         export_stats = export_all_csvs(self.db_path)
         return {
             "processed_raw_records": len(raw_rows),
