@@ -19,10 +19,11 @@ from harvesters.text_parser import (
 
 DEFAULT_TELEGRAM_CHANNELS = [
     "esfahan_architects",    # گروه تخصصی معماری سازمان نظام مهندسی ساختمان استان اصفهان
+    "memari_iran",           # پروژه‌های معماری و معماران شاخص ایران
     "esfarch_ac",            # آکادمی معماری اصفهان
-    "memarigardi",           # رویدادها و پروژه‌های معماری
-    "memari_iran",           # پروژه‌های معماری و معماران شاخص
+    "memarigardi",           # رویدادها و پروژه‌های معماری سراسر ایران
     "civil_esfahan",         # مهندسین عمران و مجریان اصفهان
+    "tehran_architects",     # جامعه مهندسین و دفاتر معماری تهران
     "isfahan_civil_engineers",
     "isfahan_arch",
 ]

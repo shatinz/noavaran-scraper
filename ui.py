@@ -11,6 +11,7 @@ from typing import Optional, List, Dict, Any
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
+from PIL import Image, ImageTk
 
 # Enable high DPI awareness on Windows if possible
 try:
@@ -25,6 +26,7 @@ try:
 except Exception:
     pass
 
+import autorun
 from database import (
     DEFAULT_DB_PATH,
     init_db,
@@ -51,13 +53,14 @@ from validate_benchmark import run_benchmark_audit
 
 
 class ScraperApp:
-    def __init__(self, root: tk.Tk, db_path: str = DEFAULT_DB_PATH):
+    def __init__(self, root: tk.Tk, db_path: str = DEFAULT_DB_PATH, auto_start_crawl: bool = False):
         self.root = root
         self.db_path = db_path
+        self.auto_start_crawl = auto_start_crawl
         # Ensure database tables exist immediately before any query
         init_db(self.db_path)
 
-        self.root.title("Noavaran Panjereh - Lead & Project Discovery Scraper | نوآوران پنجره")
+        self.root.title("نوآوران پنجره | Noavaran Panjereh - Lead & Project Intelligence Scraper")
         self.root.geometry("1120x760")
         self.root.minsize(960, 620)
 
@@ -100,6 +103,8 @@ class ScraperApp:
 
         # Initial load of stats & tables
         self._init_job = self.root.after(200, self._initial_load)
+        if self.auto_start_crawl:
+            self.root.after(2500, self._auto_start_crawl_on_launch)
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -111,7 +116,8 @@ class ScraperApp:
             except Exception:
                 pass
 
-        # Configure generic fonts & colors
+        # Configure fonts & colors based on Noavaran website redblack theme
+        # Ink: #0a0002 | Blood: #6b000e | Signal: #ab0017, #d1001c | Steel: #fefefe | Copper: #cca699
         default_font = ("Segoe UI", 9)
         header_font = ("Segoe UI", 11, "bold")
         title_font = ("Segoe UI", 14, "bold")
@@ -119,51 +125,86 @@ class ScraperApp:
         style.configure(".", font=default_font)
         style.configure("Header.TLabel", font=header_font)
         style.configure("Title.TLabel", font=title_font)
-        style.configure("StatValue.TLabel", font=("Segoe UI", 13, "bold"), foreground="#0f766e")
-        style.configure("StatTitle.TLabel", font=("Segoe UI", 8), foreground="#64748b")
+        style.configure("StatValue.TLabel", font=("Segoe UI", 13, "bold"), foreground="#ab0017")
+        style.configure("StatTitle.TLabel", font=("Segoe UI", 8), foreground="#6b7280")
 
         # Treeview styling
         style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
         style.configure("Treeview", rowheight=26, font=("Segoe UI", 9))
 
     def _build_header(self):
-        header_frame = tk.Frame(self.root, bg="#0f172a", height=70)
-        header_frame.pack(side=tk.TOP, fill=tk.X)
-        header_frame.pack_propagate(False)
+        # Red-Black brand header from Noavaran website (Ink 950: #0a0002, Signal: #ab0017 / #d1001c)
+        header_outer = tk.Frame(self.root, bg="#ab0017", height=82)
+        header_outer.pack(side=tk.TOP, fill=tk.X)
+        header_outer.pack_propagate(False)
 
-        # Left title info
-        title_box = tk.Frame(header_frame, bg="#0f172a")
-        title_box.pack(side=tk.LEFT, fill=tk.Y, padx=16, pady=10)
+        header_frame = tk.Frame(header_outer, bg="#0a0002")
+        header_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 2))
+
+        # Brand box with Logo
+        brand_box = tk.Frame(header_frame, bg="#0a0002")
+        brand_box.pack(side=tk.LEFT, fill=tk.Y, padx=16, pady=8)
+
+        # Load official logo
+        self._logo_photo = None
+        logo_candidates = [
+            os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "logo-white.png"),
+            os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "icon.png"),
+            os.path.join(get_base_dir(), "assets", "logo-white.png"),
+            os.path.join(get_base_dir(), "assets", "icon.png"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo-white.png"),
+            r"C:\Users\PC\prj\noavaran\public\logo-white.png",
+            r"C:\Users\PC\prj\noavaran\public\icon.png",
+        ]
+        for lp in logo_candidates:
+            if os.path.exists(lp):
+                try:
+                    img = Image.open(lp)
+                    target_h = 48
+                    target_w = int(img.width * (target_h / img.height))
+                    img_res = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+                    self._logo_photo = ImageTk.PhotoImage(img_res)
+                    break
+                except Exception:
+                    pass
+
+        if self._logo_photo:
+            logo_lbl = tk.Label(brand_box, image=self._logo_photo, bg="#0a0002")
+            logo_lbl.pack(side=tk.LEFT, padx=(0, 14))
+
+        # Title text container
+        text_box = tk.Frame(brand_box, bg="#0a0002")
+        text_box.pack(side=tk.LEFT, fill=tk.Y)
 
         title_lbl = tk.Label(
-            title_box,
-            text="نوآوران پنجره | Noavaran Lead & Project Scraper",
+            text_box,
+            text="نوآوران پنجره | Noavaran Panjereh",
             font=("Segoe UI", 13, "bold"),
-            fg="#f8fafc",
-            bg="#0f172a",
+            fg="#fefefe",
+            bg="#0a0002",
         )
         title_lbl.pack(anchor="w")
 
         subtitle_lbl = tk.Label(
-            title_box,
-            text="Autonomous Lead Discovery & Active Construction Project Intelligence (Isfahan & National)",
+            text_box,
+            text="سامانه هوشمند استخراج سرنخ‌ها، معماران و پروژه‌های ساختمانی سراسر کشور",
             font=("Segoe UI", 8),
-            fg="#94a3b8",
-            bg="#0f172a",
+            fg="#cca699",
+            bg="#0a0002",
         )
         subtitle_lbl.pack(anchor="w")
 
         # Right quick stats badges
-        stats_box = tk.Frame(header_frame, bg="#0f172a")
-        stats_box.pack(side=tk.RIGHT, fill=tk.Y, padx=16, pady=6)
+        stats_box = tk.Frame(header_frame, bg="#0a0002")
+        stats_box.pack(side=tk.RIGHT, fill=tk.Y, padx=16, pady=8)
 
         def make_stat_card(parent, title_text, var_name):
-            card = tk.Frame(parent, bg="#1e293b", padx=10, pady=4, relief=tk.RIDGE, bd=1)
-            card.pack(side=tk.LEFT, padx=5)
-            val_lbl = tk.Label(card, text="0", font=("Segoe UI", 11, "bold"), fg="#38bdf8", bg="#1e293b")
+            card = tk.Frame(parent, bg="#1a0004", padx=12, pady=3, relief=tk.SOLID, bd=1, highlightbackground="#4a000a", highlightthickness=1)
+            card.pack(side=tk.LEFT, padx=4)
+            val_lbl = tk.Label(card, text="0", font=("Segoe UI", 11, "bold"), fg="#fefefe", bg="#1a0004")
             val_lbl.pack()
             setattr(self, var_name, val_lbl)
-            lbl = tk.Label(card, text=title_text, font=("Segoe UI", 7), fg="#94a3b8", bg="#1e293b")
+            lbl = tk.Label(card, text=title_text, font=("Segoe UI", 7), fg="#cca699", bg="#1a0004")
             lbl.pack()
 
         make_stat_card(stats_box, "مخاطبین (Contacts)", "lbl_stat_contacts")
@@ -246,8 +287,9 @@ class ScraperApp:
         self.btn_run = tk.Button(
             btn_frame,
             text="▶ شروع پویش خودکار (Start Scraper)",
-            bg="#16a34a",
-            fg="white",
+            bg="#ab0017",
+            activebackground="#d1001c",
+            fg="#fefefe",
             font=("Segoe UI", 9, "bold"),
             relief=tk.RAISED,
             padx=8,
@@ -259,8 +301,9 @@ class ScraperApp:
         self.btn_stop = tk.Button(
             btn_frame,
             text="⏹ توقف عملیات (Stop Scraper)",
-            bg="#dc2626",
-            fg="white",
+            bg="#4a000a",
+            activebackground="#6b000e",
+            fg="#fefefe",
             font=("Segoe UI", 9, "bold"),
             state=tk.DISABLED,
             relief=tk.RAISED,
@@ -292,6 +335,38 @@ class ScraperApp:
 
         self.progressbar = ttk.Progressbar(left_frame, orient=tk.HORIZONTAL, mode="determinate")
         self.progressbar.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+
+        # Daily Autorun on Windows Startup
+        autorun_card = ttk.LabelFrame(left_frame, text="⏱️ اجرای خودکار روزانه (Daily Startup Autorun)", padding=8)
+        autorun_card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+
+        self.var_autorun = tk.BooleanVar(value=autorun.is_autorun_enabled())
+        self.var_autorun_crawl = tk.BooleanVar(value=True)
+
+        chk_autorun = ttk.Checkbutton(
+            autorun_card,
+            text="اجرای خودکار با روشن شدن سیستم (Run on Startup)",
+            variable=self.var_autorun,
+            command=self._on_toggle_autorun,
+        )
+        chk_autorun.pack(anchor="w", pady=2)
+
+        chk_crawl = ttk.Checkbutton(
+            autorun_card,
+            text="شروع خودکار پویش سرنخ‌ها هنگام بالا آمدن ویندوز",
+            variable=self.var_autorun_crawl,
+            command=self._on_toggle_autorun,
+        )
+        chk_crawl.pack(anchor="w", pady=2)
+
+        is_act = self.var_autorun.get()
+        self.lbl_autorun_status = tk.Label(
+            autorun_card,
+            text="وضعیت: فعال در استارت‌آپ ویندوز (Active)" if is_act else "وضعیت: غیرفعال (Disabled)",
+            font=("Segoe UI", 8, "bold"),
+            fg="#16a34a" if is_act else "#64748b",
+        )
+        self.lbl_autorun_status.pack(anchor="w", pady=(2, 0))
 
         # Right: Live Console Output
         right_frame = ttk.LabelFrame(paned, text="لاگ زنده و خروجی کنسول (Live Execution Logs)", padding=6)
@@ -606,14 +681,21 @@ class ScraperApp:
         ttk.Button(btn_box3, text="🔄 استخراج هر دو فایل هم‌زمان (Export All CSVs)", command=self._export_all_now).pack(side=tk.LEFT, padx=4)
 
     def _build_statusbar(self):
-        status_frame = tk.Frame(self.root, bg="#f1f5f9", height=24, relief=tk.SUNKEN, bd=1)
+        status_frame = tk.Frame(self.root, bg="#0a0002", height=26, relief=tk.FLAT, bd=0)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.lbl_status_left = tk.Label(status_frame, text="آماده به کار", font=("Segoe UI", 8), bg="#f1f5f9", fg="#334155")
-        self.lbl_status_left.pack(side=tk.LEFT, padx=8)
+        # Subtle top accent line
+        top_line = tk.Frame(status_frame, bg="#4a000a", height=1)
+        top_line.pack(side=tk.TOP, fill=tk.X)
 
-        self.lbl_status_right = tk.Label(status_frame, text=f"Database: {os.path.basename(self.db_path)}", font=("Segoe UI", 8), bg="#f1f5f9", fg="#64748b")
-        self.lbl_status_right.pack(side=tk.RIGHT, padx=8)
+        inner_status = tk.Frame(status_frame, bg="#0a0002")
+        inner_status.pack(side=tk.TOP, fill=tk.X, expand=True)
+
+        self.lbl_status_left = tk.Label(inner_status, text="آماده به کار (Ready)", font=("Segoe UI", 8), bg="#0a0002", fg="#e3e4e6")
+        self.lbl_status_left.pack(side=tk.LEFT, padx=12, pady=2)
+
+        self.lbl_status_right = tk.Label(inner_status, text=f"Noavaran Scraper | DB: {os.path.basename(self.db_path)}", font=("Segoe UI", 8), bg="#0a0002", fg="#cca699")
+        self.lbl_status_right.pack(side=tk.RIGHT, padx=12, pady=2)
 
     # ========================== Data Loading & Stats ==========================
 
@@ -950,20 +1032,37 @@ class ScraperApp:
     def _set_busy_state(self, busy: bool, status_text: str = ""):
         self.is_busy = busy
         if busy:
-            self.btn_run.config(state=tk.DISABLED, bg="#9ca3af")
-            self.btn_stop.config(state=tk.NORMAL)
+            self.btn_run.config(state=tk.DISABLED, bg="#4a000a")
+            self.btn_stop.config(state=tk.NORMAL, bg="#d1001c")
             self.btn_rebuild.config(state=tk.DISABLED)
             self.btn_benchmark.config(state=tk.DISABLED)
-            self.lbl_status_left.config(text=status_text or "در حال اجرا...", fg="#0284c7")
+            self.lbl_status_left.config(text=status_text or "در حال اجرا...", fg="#f87171")
             self.crawl_status_lbl.config(text=status_text or "در حال اجرا...")
         else:
-            self.btn_run.config(state=tk.NORMAL, bg="#16a34a")
-            self.btn_stop.config(state=tk.DISABLED)
+            self.btn_run.config(state=tk.NORMAL, bg="#ab0017")
+            self.btn_stop.config(state=tk.DISABLED, bg="#4a000a")
             self.btn_rebuild.config(state=tk.NORMAL)
             self.btn_benchmark.config(state=tk.NORMAL)
-            self.lbl_status_left.config(text="آماده به کار (Idle)", fg="#334155")
+            self.lbl_status_left.config(text="آماده به کار (Idle)", fg="#e3e4e6")
             self.crawl_status_lbl.config(text="آماده به کار (Idle)")
             self.progressbar["value"] = 0
+
+    def _on_toggle_autorun(self):
+        enable = self.var_autorun.get()
+        auto_crawl = self.var_autorun_crawl.get()
+        ok, msg = autorun.set_autorun(enable=enable, auto_crawl=auto_crawl)
+        if ok:
+            status_text = "وضعیت: فعال در استارت‌آپ ویندوز (Active)" if enable else "وضعیت: غیرفعال (Disabled)"
+            status_color = "#16a34a" if enable else "#64748b"
+            self.lbl_autorun_status.config(text=status_text, fg=status_color)
+            self._append_log(f"⚙️ {msg}", tag="success" if enable else "dim")
+        else:
+            messagebox.showerror("خطای تغییر استارت‌آپ", msg)
+            self.var_autorun.set(not enable)
+
+    def _auto_start_crawl_on_launch(self):
+        self._append_log("🚀 اجرای خودکار روزانه فعال شد: آغاز خودکار پویش سرنخ‌ها و پروژه‌های جدید...", tag="success")
+        self._on_start_crawler()
 
     def _on_start_crawler(self):
         if self.is_busy:
@@ -1248,11 +1347,11 @@ class ScraperApp:
             self.close()
 
 
-def launch_ui(db_path: Optional[str] = None):
+def launch_ui(db_path: Optional[str] = None, auto_start_crawl: bool = False):
     target_db = db_path or DEFAULT_DB_PATH
     init_db(target_db)
     root = tk.Tk()
-    app = ScraperApp(root, db_path=target_db)
+    app = ScraperApp(root, db_path=target_db, auto_start_crawl=auto_start_crawl)
     root.mainloop()
 
 

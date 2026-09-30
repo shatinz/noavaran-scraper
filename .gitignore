@@ -13,4 +13,6 @@ build/
 dist/data/
 dist/NoavaranScraper-Package/
 dist/*.zip
+dist/*.csv
+dist/*.db
 

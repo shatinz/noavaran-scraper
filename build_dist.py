@@ -196,6 +196,10 @@ def main():
     shutil.copy2(exe_path, os.path.join(PACKAGE_DIR, "NoavaranScraper.exe"))
     shutil.copy2(os.path.join(BASE_DIR, "icon.ico"), os.path.join(PACKAGE_DIR, "icon.ico"))
 
+    assets_src = os.path.join(BASE_DIR, "assets")
+    if os.path.exists(assets_src):
+        shutil.copytree(assets_src, os.path.join(PACKAGE_DIR, "assets"), dirs_exist_ok=True)
+
     with open(os.path.join(PACKAGE_DIR, "install.bat"), "w", encoding="utf-8") as f:
         f.write(INSTALL_BAT_CONTENT)
 

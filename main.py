@@ -109,6 +109,14 @@ def main():
     # Command: validate
     subparsers.add_parser("validate", help="Run benchmark audit against known Isfahan entities")
 
+    parser.add_argument("--autorun", action="store_true", help="Launch GUI and automatically start daily lead harvest pass")
+
+    # If launched on Windows startup with --autorun flag
+    if "--autorun" in sys.argv:
+        from ui import launch_ui
+        launch_ui(auto_start_crawl=True)
+        return
+
     # If double-clicked without arguments, launch GUI directly
     if len(sys.argv) == 1:
         from ui import launch_ui

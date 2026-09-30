@@ -278,3 +278,22 @@ def test_crawler_imports_and_uses_normalize_city():
     assert crawler.normalize_city("دفتر معماری در شیراز") == "Shiraz"
 
 
+def test_autorun_functions():
+    """Verify autorun module reports status and toggles cleanly."""
+    import autorun
+    info = autorun.get_autorun_info()
+    assert isinstance(info, dict)
+    assert "supported" in info
+    assert "enabled" in info
+
+    # Toggle cycle
+    ok, msg = autorun.set_autorun(True)
+    assert ok is True
+    assert autorun.is_autorun_enabled() is True
+
+    ok2, msg2 = autorun.set_autorun(False)
+    assert ok2 is True
+    assert autorun.is_autorun_enabled() is False
+
+
+

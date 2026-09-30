@@ -2,7 +2,7 @@
 import os
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('icon.ico', '.')]
+datas = [('icon.ico', '.'), ('assets', 'assets')]
 binaries = []
 hiddenimports = [
     'sqlite3',
@@ -11,6 +11,8 @@ hiddenimports = [
     'tkinter.messagebox',
     'tkinter.filedialog',
     'tkinter.scrolledtext',
+    'winreg',
+    'autorun',
 ]
 
 packages_to_collect = [
@@ -21,6 +23,7 @@ packages_to_collect = [
     'certifi',
     'bs4',
     'requests',
+    'PIL',
 ]
 
 for pkg in packages_to_collect:

@@ -42,41 +42,48 @@ SEED_QUERIES = [
     # 1. Active Projects in Isfahan (Commercial & Luxury)
     {"type": "search_project", "category": "project", "q": 'پروژه مجتمع اداری تجاری مهستان نقش جهان اصفهان'},
     {"type": "search_project", "category": "project", "q": 'پروژه در حال ساخت اصفهان "مجری" OR "کارفرما" OR "معمار"'},
+
+    # 2. National Large-Scale Landmark Towers (Tehran, Shiraz, Kish, Mashhad)
+    {"type": "search_project", "category": "project", "q": 'پروژه برج تجاری اداری در حال ساخت تهران OR شیراز "نمای کرتین وال" OR "ترمال بریک"'},
+    {"type": "search_project", "category": "project", "q": 'پروژه مگامال هتل برج مسکونی لوکس در حال ساخت "مشهد" OR "کیش" OR "کرج"'},
     
-    # 2. Isfahan Architecture & Design Offices
+    # 3. Isfahan Architecture & Design Offices
     {"type": "search_web", "category": "office", "q": 'شرکت معماری اصفهان "تلفن" "0913"'},
     {"type": "instagram", "category": "office", "q": 'site:instagram.com "razanarchitects" OR "دفتر معماری رازان"'},
-    {"type": "linkedin_company", "category": "office", "q": 'site:linkedin.com/company ("معماری" OR "مهندسین مشاور") "اصفهان"'},
 
-    # 3. Facade & Window Construction Contractors
+    # 4. National Premier Architecture & Consulting Engineering Offices (Tehran & National)
+    {"type": "search_web", "category": "office", "q": 'مهندسین مشاور معماری تهران "پروژه های در حال اجرا" "تلفن"'},
+    {"type": "linkedin_company", "category": "office", "q": 'site:linkedin.com/company ("معماری" OR "مهندسین مشاور") ("اصفهان" OR "تهران")'},
+
+    # 5. Facade & Window Construction Contractors (Isfahan & National)
     {"type": "search_web", "category": "contractor", "q": 'پیمانکار نما اصفهان "کرتین وال" OR "ترمال بریک" "تلفن"'},
+    {"type": "search_web", "category": "contractor", "q": 'پیمانکار مجری نمای شیشه ای کرتین وال تهران OR شیراز "تلفن"'},
     {"type": "search_web", "category": "contractor", "q": '"شرکت آروین پنجره پارتاک" OR "نوآوران پنجره" اصفهان'},
-    {"type": "instagram", "category": "contractor", "q": 'site:instagram.com ("مجری نما" OR "نصاب پنجره" OR "پیمانکار ساختمان") "اصفهان"'},
+    {"type": "instagram", "category": "contractor", "q": 'site:instagram.com ("مجری نما" OR "نصاب پنجره" OR "پیمانکار ساختمان") ("اصفهان" OR "تهران")'},
 
-    # 4. Active Large-Scale Projects (Isfahan & National Towers)
+    # 6. Active Building & Commercial Projects
     {"type": "search_project", "category": "project", "q": 'برج مسکونی تجاری اصفهان "در حال اجرا" OR "پیش فروش"'},
     {"type": "search_project", "category": "project", "q": 'سیتی سنتر شاهین شهر "پروژه" OR "کارفرما"'},
-    {"type": "search_project", "category": "project", "q": 'پروژه برج مجتمع تجاری بزرگ در حال ساخت تهران OR شیراز "نمای کرتین وال"'},
 
-    # 5. Architecture Students (Isfahan & Top-Tier Universities)
+    # 7. Architecture Students (Isfahan & Top-Tier Universities)
     {"type": "linkedin", "category": "student", "q": 'site:linkedin.com/in ("دانشجوی معماری" OR "architecture student") ("اصفهان" OR "هنر اصفهان")'},
     {"type": "linkedin", "category": "student", "q": 'site:linkedin.com/in "دانشجوی معماری" ("دانشگاه تهران" OR "شهید بهشتی") "مسابقه"'},
 
-    # 6. Benchmark Known Architecture Offices
+    # 8. Benchmark Known Architecture Offices
     {"type": "search_web", "category": "office", "q": '"مهندسین مشاور نقش جهان" اصفهان "معماری"'},
     {"type": "search_web", "category": "office", "q": '"گروه معماری پادیاو" اصفهان'},
     {"type": "search_web", "category": "office", "q": '"استودیو معماری شارستان" اصفهان'},
     {"type": "search_web", "category": "office", "q": '"شرکت مهندسی بافت شهر" اصفهان'},
 
-    # 7. Contractors & Specialized Facade Installers
+    # 9. Contractors & Specialized Facade Installers
     {"type": "search_web", "category": "contractor", "q": '"نما گستران" OR "پرشیا پنجره" اصفهان "پنجره"'},
     {"type": "search_web", "category": "contractor", "q": '"پرشین سازه" اصفهان "پیمانکار" OR "مجری"'},
     {"type": "search_web", "category": "office", "q": '"مهندسین مشاور شهر و اندیشه" اصفهان'},
     {"type": "search_web", "category": "office", "q": '"دفتر معماری فضا، رویداد، شهر" اصفهان OR "فضا رویداد شهر"'},
     {"type": "search_web", "category": "student", "q": 'دانشکده معماری دانشگاه هنر اصفهان'},
-    {"type": "linkedin_company", "category": "contractor", "q": 'site:linkedin.com/company "پیمانکار ساختمان" تهران'},
+    {"type": "linkedin_company", "category": "contractor", "q": 'site:linkedin.com/company "پیمانکار ساختمان" ("تهران" OR "شیراز" OR "اصفهان")'},
 
-    # 8. International Opportunistic (High Intent Facade Consultants)
+    # 10. International Opportunistic (High Intent Facade Consultants)
     {"type": "search_web", "category": "office", "q": 'architectural facade engineering consultancy Dubai UAE contact email'},
 ]
 
