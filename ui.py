@@ -6,6 +6,8 @@ import queue
 import threading
 import webbrowser
 import subprocess
+import re
+import urllib.parse
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -38,7 +40,15 @@ from database import (
     get_ambiguous_reviews,
     get_cache_stats,
     get_base_dir,
+    get_crm_pipeline_items,
+    get_lead_crm_status,
+    save_lead_crm_status,
+    add_crm_activity,
+    get_crm_activities,
+    get_crm_templates,
+    save_crm_template,
 )
+import updater
 from models import ContactEntity, ActiveProject
 from normalizer import normalize_persian_text
 from exporters import (
@@ -84,11 +94,17 @@ class ScraperApp:
         self.contacts_cache: List[ContactEntity] = []
         self.projects_cache: List[ActiveProject] = []
         self.reviews_cache: List[Dict[str, Any]] = []
+        self.crm_items_cache: List[Dict[str, Any]] = []
 
         # Sort order trackers
         self.contacts_sort_state = {}
         self.projects_sort_state = {}
         self.reviews_sort_state = {}
+        self.crm_sort_state = {}
+
+        # CRM selection
+        self.selected_crm_item: Optional[Dict[str, Any]] = None
+        self._update_check_job = None
 
         self._configure_styles()
         self._build_header()
@@ -105,6 +121,9 @@ class ScraperApp:
         self._init_job = self.root.after(200, self._initial_load)
         if self.auto_start_crawl:
             self.root.after(2500, self._auto_start_crawl_on_launch)
+
+        # Background update check (non-blocking)
+        self._update_check_job = self.root.after(3500, lambda: self._check_updates_flow(interactive=False))
 
     def _configure_styles(self):
         style = ttk.Style()
@@ -212,6 +231,22 @@ class ScraperApp:
         make_stat_card(stats_box, "رکوردهای خام (Raw)", "lbl_stat_raw")
         make_stat_card(stats_box, "برخوردهای مبهم (Reviews)", "lbl_stat_reviews")
 
+        # Quick update check action button
+        self.btn_check_update = tk.Button(
+            stats_box,
+            text=f"🔄 به‌روزرسانی (v{updater.CURRENT_VERSION})",
+            font=("Segoe UI", 8, "bold"),
+            fg="#fefefe",
+            bg="#3b0007",
+            activebackground="#ab0017",
+            activeforeground="#ffffff",
+            relief=tk.RAISED,
+            padx=8,
+            pady=4,
+            command=lambda: self._check_updates_flow(interactive=True),
+        )
+        self.btn_check_update.pack(side=tk.LEFT, padx=(6, 0))
+
     def _build_notebook(self):
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=6)
@@ -240,6 +275,11 @@ class ScraperApp:
         self.tab_export = ttk.Frame(self.notebook, padding=8)
         self.notebook.add(self.tab_export, text=" 📁 خروجی‌ها و فایل‌ها (Export & Files) ")
         self._setup_export_tab()
+
+        # Tab 6: Construction CRM Pipeline & Sales Workflow
+        self.tab_crm = ttk.Frame(self.notebook, padding=8)
+        self.notebook.add(self.tab_crm, text=" 💼 خط فروش و پیگیری مشتریان (CRM) ")
+        self._setup_crm_tab()
 
     def _setup_crawl_tab(self):
         # Top Config & Action Pane
@@ -680,6 +720,273 @@ class ScraperApp:
         ttk.Button(btn_box3, text="📂 باز کردن پوشه فایل‌ها (Open Output Folder)", command=self._open_base_dir).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_box3, text="🔄 استخراج هر دو فایل هم‌زمان (Export All CSVs)", command=self._export_all_now).pack(side=tk.LEFT, padx=4)
 
+    # ========================== CRM Pipeline Tab ==========================
+
+    def _setup_crm_tab(self):
+        # Master CRM Layout
+        top_filter_bar = ttk.Frame(self.tab_crm, padding=(0, 0, 0, 6))
+        top_filter_bar.pack(fill=tk.X)
+
+        ttk.Label(top_filter_bar, text="مرحله فروش (Stage):", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+        self.cmb_crm_filter_stage = ttk.Combobox(
+            top_filter_bar,
+            values=[
+                "همه مراحل (All Stages)",
+                "new: سرنخ جدید",
+                "qualified: تماس اولیه و ارزیابی",
+                "drawings: دریافت نقشه‌های فاز ۲",
+                "quoted: صدور پیش‌فاکتور مهندسی",
+                "negotiation: جلسه حضوری و بازدید",
+                "won: عقد قرارداد و تولید",
+                "lost: انصراف / رد شده",
+            ],
+            state="readonly",
+            width=24
+        )
+        self.cmb_crm_filter_stage.current(0)
+        self.cmb_crm_filter_stage.pack(side=tk.LEFT, padx=4)
+        self.cmb_crm_filter_stage.bind("<<ComboboxSelected>>", lambda e: self._filter_crm_items())
+
+        ttk.Label(top_filter_bar, text="جستجو:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(12, 4))
+        self.ent_crm_search = ttk.Entry(top_filter_bar, width=22)
+        self.ent_crm_search.pack(side=tk.LEFT, padx=4)
+        self.ent_crm_search.bind("<KeyRelease>", lambda e: self._filter_crm_items())
+
+        ttk.Button(top_filter_bar, text="🔄 بازخوانی سرنخ‌ها", command=self._load_crm_from_db).pack(side=tk.LEFT, padx=6)
+
+        self.lbl_crm_count = ttk.Label(top_filter_bar, text="تعداد سرنخ‌ها: 0", font=("Segoe UI", 8, "italic"))
+        self.lbl_crm_count.pack(side=tk.RIGHT, padx=4)
+
+        # Horizontal split: Left list of leads, Right work panel
+        paned = ttk.PanedWindow(self.tab_crm, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # Left list
+        left_frame = ttk.Frame(paned)
+        paned.add(left_frame, weight=3)
+
+        cols = ("title", "type", "city", "phone", "stage", "deal", "follow_up")
+        self.tree_crm = ttk.Treeview(left_frame, columns=cols, show="headings", selectmode="browse")
+
+        col_defs = [
+            ("title", "عنوان سرنخ / پروژه / شخص", 160),
+            ("type", "نوع", 80),
+            ("city", "شهر", 70),
+            ("phone", "شماره تماس", 105),
+            ("stage", "مرحله فروش", 130),
+            ("deal", "ارزش (تومان)", 85),
+            ("follow_up", "موعد پیگیری", 85),
+        ]
+        for c_id, c_name, c_w in col_defs:
+            self.tree_crm.heading(c_id, text=c_name, command=lambda c=c_id: self._sort_tree(self.tree_crm, self.crm_sort_state, c))
+            self.tree_crm.column(c_id, width=c_w, minwidth=60)
+
+        vsb = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.tree_crm.yview)
+        hsb = ttk.Scrollbar(left_frame, orient=tk.HORIZONTAL, command=self.tree_crm.xview)
+        self.tree_crm.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        self.tree_crm.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        left_frame.grid_rowconfigure(0, weight=1)
+        left_frame.grid_columnconfigure(0, weight=1)
+
+        self.tree_crm.bind("<<TreeviewSelect>>", self._on_crm_lead_selected)
+
+        # Right Action & Management Panel
+        right_frame = ttk.Frame(paned)
+        paned.add(right_frame, weight=4)
+
+        # Lead Header Card
+        header_card = tk.Frame(right_frame, bg="#1a0004", relief=tk.SOLID, bd=1, highlightbackground="#4a000a", highlightthickness=1, padx=10, pady=8)
+        header_card.pack(fill=tk.X, pady=(0, 6))
+
+        self.lbl_crm_active_title = tk.Label(header_card, text="هیچ سرنخی انتخاب نشده است", font=("Segoe UI", 11, "bold"), fg="#fefefe", bg="#1a0004")
+        self.lbl_crm_active_title.pack(anchor="w")
+
+        self.lbl_crm_active_subtitle = tk.Label(header_card, text="یک ردیف از جدول سمت چپ را انتخاب فرمایید", font=("Segoe UI", 8), fg="#cca699", bg="#1a0004")
+        self.lbl_crm_active_subtitle.pack(anchor="w", pady=(2, 4))
+
+        quick_btns = tk.Frame(header_card, bg="#1a0004")
+        quick_btns.pack(anchor="w")
+
+        self.btn_crm_copy_phone = ttk.Button(quick_btns, text="📋 کپی شماره", command=self._copy_crm_phone)
+        self.btn_crm_copy_phone.pack(side=tk.LEFT, padx=(0, 4))
+
+        self.btn_crm_open_url = ttk.Button(quick_btns, text="🌐 باز کردن لینک منبع", command=self._open_crm_source_url)
+        self.btn_crm_open_url.pack(side=tk.LEFT, padx=4)
+
+        # Sub Notebook for CRM
+        self.crm_notebook = ttk.Notebook(right_frame)
+        self.crm_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # SubTab 1: Pipeline & Stage Details
+        sub_pipeline = ttk.Frame(self.crm_notebook, padding=8)
+        self.crm_notebook.add(sub_pipeline, text="📌 وضعیت و مرحله فروش")
+
+        # Form fields
+        form = ttk.Frame(sub_pipeline)
+        form.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(form, text="مرحله جاری:").grid(row=0, column=0, sticky="w", pady=3)
+        self.cmb_crm_lead_stage = ttk.Combobox(
+            form,
+            values=[
+                "new: سرنخ جدید",
+                "qualified: تماس اولیه و ارزیابی",
+                "drawings: دریافت نقشه‌های فاز ۲",
+                "quoted: صدور پیش‌فاکتور مهندسی",
+                "negotiation: جلسه حضوری و بازدید",
+                "won: عقد قرارداد و تولید",
+                "lost: انصراف / رد شده",
+            ],
+            state="readonly",
+            width=26
+        )
+        self.cmb_crm_lead_stage.grid(row=0, column=1, sticky="ew", pady=3, padx=4)
+        self.cmb_crm_lead_stage.bind("<<ComboboxSelected>>", self._on_crm_stage_dropdown_change)
+
+        ttk.Label(form, text="کارشناس مسئول:").grid(row=1, column=0, sticky="w", pady=3)
+        self.ent_crm_assigned = ttk.Entry(form, width=26)
+        self.ent_crm_assigned.grid(row=1, column=1, sticky="ew", pady=3, padx=4)
+
+        ttk.Label(form, text="ارزش برآوردی (تومان):").grid(row=2, column=0, sticky="w", pady=3)
+        self.ent_crm_deal_val = ttk.Entry(form, width=26)
+        self.ent_crm_deal_val.grid(row=2, column=1, sticky="ew", pady=3, padx=4)
+
+        ttk.Label(form, text="موعد پیگیری بعدی:").grid(row=3, column=0, sticky="w", pady=3)
+        self.ent_crm_followup_date = ttk.Entry(form, width=26)
+        self.ent_crm_followup_date.grid(row=3, column=1, sticky="ew", pady=3, padx=4)
+
+        ttk.Label(form, text="یادداشت پرونده:").grid(row=4, column=0, sticky="nw", pady=3)
+        self.txt_crm_lead_notes = tk.Text(form, height=3, font=("Segoe UI", 9), wrap=tk.WORD, bg="#f8fafc")
+        self.txt_crm_lead_notes.grid(row=4, column=1, sticky="ew", pady=3, padx=4)
+
+        form.grid_columnconfigure(1, weight=1)
+
+        btn_save_status = tk.Button(
+            sub_pipeline,
+            text="💾 ذخیره تغییرات مرحله و پرونده",
+            bg="#ab0017",
+            activebackground="#d1001c",
+            fg="#fefefe",
+            font=("Segoe UI", 9, "bold"),
+            relief=tk.RAISED,
+            padx=8,
+            pady=4,
+            command=self._save_crm_status_changes,
+        )
+        btn_save_status.pack(fill=tk.X, pady=(2, 6))
+
+        # Contextual Sales Tip Box
+        self.tip_frame = tk.Frame(sub_pipeline, bg="#fdf2f2", relief=tk.SOLID, bd=1, highlightbackground="#fca5a5", highlightthickness=1, padx=8, pady=6)
+        self.tip_frame.pack(fill=tk.BOTH, expand=True, pady=4)
+
+        tip_title = tk.Label(self.tip_frame, text="💡 فوت‌وفن فروش نوآوران پنجره در این مرحله:", font=("Segoe UI", 9, "bold"), fg="#991b1b", bg="#fdf2f2")
+        tip_title.pack(anchor="w")
+
+        self.lbl_crm_sales_tip = tk.Label(
+            self.tip_frame,
+            text="با انتخاب مرحله، نکات و استراتژی‌های فروش مهندسی نوآوران پنجره نمایش داده می‌شود.",
+            font=("Segoe UI", 8),
+            fg="#7f1d1d",
+            bg="#fdf2f2",
+            justify=tk.LEFT,
+            wraplength=380,
+        )
+        self.lbl_crm_sales_tip.pack(anchor="w", pady=(4, 0), fill=tk.BOTH, expand=True)
+
+        # SubTab 2: SMS & Email Center
+        sub_comm = ttk.Frame(self.crm_notebook, padding=8)
+        self.crm_notebook.add(sub_comm, text="💬 مرکز پیامک و ایمیل (ارتباط سریع)")
+
+        ttk.Label(sub_comm, text="انتخاب الگوی ارتباطی:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self.cmb_crm_template = ttk.Combobox(sub_comm, state="readonly", width=40)
+        self.cmb_crm_template.pack(fill=tk.X, pady=(2, 6))
+        self.cmb_crm_template.bind("<<ComboboxSelected>>", self._on_crm_template_selected)
+
+        ttk.Label(sub_comm, text="موضوع ایمیل (فقط برای ایمیل):", font=("Segoe UI", 8)).pack(anchor="w")
+        self.ent_crm_template_subj = ttk.Entry(sub_comm)
+        self.ent_crm_template_subj.pack(fill=tk.X, pady=(1, 4))
+
+        ttk.Label(sub_comm, text="متن ارسالی (قابل ویرایش قبل از کپی یا ارسال):", font=("Segoe UI", 8)).pack(anchor="w")
+        self.txt_crm_template_content = scrolledtext.ScrolledText(sub_comm, height=6, font=("Segoe UI", 9), wrap=tk.WORD, bg="#f8fafc")
+        self.txt_crm_template_content.pack(fill=tk.BOTH, expand=True, pady=(2, 6))
+
+        comm_actions = ttk.Frame(sub_comm)
+        comm_actions.pack(fill=tk.X)
+
+        btn_copy_sms = tk.Button(
+            comm_actions,
+            text="📱 کپی متن پیامک و ثبت در سوابق",
+            bg="#0f766e",
+            activebackground="#115e59",
+            fg="#fefefe",
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=4,
+            command=self._copy_crm_sms_and_log,
+        )
+        btn_copy_sms.pack(side=tk.LEFT, padx=(0, 4))
+
+        btn_send_mail = tk.Button(
+            comm_actions,
+            text="✉️ باز کردن ایمیل (Mailto) و ثبت در سوابق",
+            bg="#1d4ed8",
+            activebackground="#1e40af",
+            fg="#fefefe",
+            font=("Segoe UI", 8, "bold"),
+            padx=6,
+            pady=4,
+            command=self._send_crm_email_and_log,
+        )
+        btn_send_mail.pack(side=tk.LEFT, padx=4)
+
+        # SubTab 3: Activity Timeline
+        sub_timeline = ttk.Frame(self.crm_notebook, padding=8)
+        self.crm_notebook.add(sub_timeline, text="📜 تاریخچه و لاگ فعالیت‌ها")
+
+        # Treeview of activities
+        act_frame = ttk.Frame(sub_timeline)
+        act_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+
+        act_cols = ("date", "type", "summary")
+        self.tree_crm_activities = ttk.Treeview(act_frame, columns=act_cols, show="headings", height=5)
+        self.tree_crm_activities.heading("date", text="تاریخ و زمان")
+        self.tree_crm_activities.heading("type", text="نوع فعالیت")
+        self.tree_crm_activities.heading("summary", text="شرح رویداد")
+        self.tree_crm_activities.column("date", width=120)
+        self.tree_crm_activities.column("type", width=90)
+        self.tree_crm_activities.column("summary", width=220)
+
+        act_vsb = ttk.Scrollbar(act_frame, orient=tk.VERTICAL, command=self.tree_crm_activities.yview)
+        self.tree_crm_activities.configure(yscrollcommand=act_vsb.set)
+        self.tree_crm_activities.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        act_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Add Activity Form
+        add_box = ttk.LabelFrame(sub_timeline, text="ثبت فعالیت جدید در پرونده", padding=6)
+        add_box.pack(fill=tk.X)
+
+        act_in_f = ttk.Frame(add_box)
+        act_in_f.pack(fill=tk.X, pady=2)
+
+        ttk.Label(act_in_f, text="نوع:").pack(side=tk.LEFT, padx=(0, 2))
+        self.cmb_new_act_type = ttk.Combobox(
+            act_in_f,
+            values=["تماس تلفنی", "پیامک ارسالی", "ایمیل ارسالی", "جلسه حضوری", "بازدید کارگاه", "صدور پیش‌فاکتور", "یادداشت داخلی"],
+            state="readonly",
+            width=14
+        )
+        self.cmb_new_act_type.current(0)
+        self.cmb_new_act_type.pack(side=tk.LEFT, padx=2)
+
+        ttk.Label(act_in_f, text="خلاصه:").pack(side=tk.LEFT, padx=(6, 2))
+        self.ent_new_act_summary = ttk.Entry(act_in_f, width=28)
+        self.ent_new_act_summary.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        ttk.Button(act_in_f, text="➕ ثبت فعالیت", command=self._add_crm_manual_activity).pack(side=tk.LEFT, padx=(4, 0))
+
     def _build_statusbar(self):
         status_frame = tk.Frame(self.root, bg="#0a0002", height=26, relief=tk.FLAT, bd=0)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
@@ -711,6 +1018,7 @@ class ScraperApp:
         self._load_contacts_from_db()
         self._load_projects_from_db()
         self._load_reviews_from_db()
+        self._load_crm_from_db()
         self._append_log("✨ سامانه هوشمند کشف سرنخ نوآوران پنجره آماده است.", tag="success")
         self._append_log(f"📁 پایگاه داده در حال استفاده: {self.db_path}", tag="dim")
 
@@ -758,6 +1066,381 @@ class ScraperApp:
                 )
         except Exception as e:
             self._append_log(f"خطا در بارگذاری برخوردهای مبهم: {e}", tag="error")
+
+    CRM_STAGE_LABELS = {
+        "new": "سرنخ جدید",
+        "qualified": "تماس اولیه و ارزیابی",
+        "drawings": "دریافت نقشه‌های فاز ۲",
+        "quoted": "صدور پیش‌فاکتور مهندسی",
+        "negotiation": "جلسه حضوری و بازدید",
+        "won": "عقد قرارداد و تولید",
+        "lost": "انصراف / رد شده",
+    }
+
+    CRM_STAGE_TIPS = {
+        "new": "💡 راهنمای فروش نوآوران پنجره: در اولین تماس به هیچ وجه اصرار بر فروش نکنید؛ صرفاً تخصص نوآوران پنجره در سیستم‌های ترمال‌بریک و کرتین‌وال را معرفی و لینک کاتالوگ مهندسی را ارسال نمایید تا پیش‌زمینه فنی شکل گیرد.",
+        "qualified": "💡 راهنمای فروش نوآوران پنجره: بررسی کنید پروژه در چه مرحله‌ای است (اسکلت یا نازک‌کاری)؟ تقاضای ارسال فایل اتوکد فاز ۲ و تیپ‌بندی بازشوها را جهت برآورد متراژ و ابعاد مطرح فرمایید.",
+        "drawings": "💡 راهنمای فروش نوآوران پنجره: محاسبات دقیق ممان اینرسی، بار باد و ضخامت شیشه‌ها (دوجداره لمینت/گاز آرگون) را انجام دهید. سیستم‌های لیفت‌اند‌اسلاید یا لولایی متناسب با ابعاد دهانه‌ها پیشنهاد گردد.",
+        "quoted": "💡 راهنمای فروش نوآوران پنجره: پیش‌فاکتور تفکیکی به همراه دفترچه مشخصات فنی (برند پروفیل آکپا/رینرز، یراق‌آلات اروپایی) ارسال شود. حداکثر ظرف ۴۸ ساعت جهت رفع ابهامات فنی پیگیری تلفنی فرمایید.",
+        "negotiation": "💡 راهنمای فروش نوآوران پنجره: بهترین روش تصمیم‌گیری نهایی کارفرما و معمار، دعوت به شوروم و خط تولید نوآوران پنجره یا نمایش نمونه مقطع واقعی (Corner Sample) در کارگاه است.",
+        "won": "💡 راهنمای فروش نوآوران پنجره: نقشه‌های نهایی تولید (شاپ‌دراوینگ) به امضای معمار و کارفرما برسد. برنامه زمانبندی ارسال فریم‌های آهنی و پنجره‌ها با کارگاه هماهنگ شود.",
+        "lost": "💡 علت انصراف (قیمت، انتخاب پیمانکار دیگر، تغییر کاربری یا تاخیر پروژه) را ثبت نمایید تا در کمپین‌های بازگشت مشتری یا مشاوره‌های آتی استفاده گردد."
+    }
+
+    def _load_crm_from_db(self):
+        try:
+            self.crm_items_cache = get_crm_pipeline_items(db_path=self.db_path)
+            self._filter_crm_items()
+            # Load templates
+            self._crm_templates = get_crm_templates(db_path=self.db_path)
+            template_titles = [f"{t['id']}: {t['title']}" for t in self._crm_templates]
+            self.cmb_crm_template["values"] = template_titles
+            if template_titles:
+                self.cmb_crm_template.current(0)
+                self._on_crm_template_selected()
+        except Exception as e:
+            self._append_log(f"خطا در بارگذاری اطلاعات CRM: {e}", tag="error")
+
+    def _filter_crm_items(self):
+        query = normalize_persian_text(self.ent_crm_search.get()).strip().lower()
+        filter_stage = self.cmb_crm_filter_stage.get()
+
+        selected_code = "all"
+        if filter_stage and ":" in filter_stage:
+            selected_code = filter_stage.split(":")[0].strip()
+
+        self.tree_crm.delete(*self.tree_crm.get_children())
+        shown = 0
+
+        for item in self.crm_items_cache:
+            if selected_code != "all" and item["stage"] != selected_code:
+                continue
+
+            if query:
+                search_blob = normalize_persian_text(
+                    f"{item.get('title', '')} {item.get('company', '')} {item.get('city', '')} {item.get('phone', '')} {item.get('notes', '')}"
+                ).lower()
+                if query not in search_blob:
+                    continue
+
+            stage_text = self.CRM_STAGE_LABELS.get(item["stage"], item["stage"])
+            deal_str = f"{item.get('deal_value', 0):,}" if item.get('deal_value') else "-"
+            self.tree_crm.insert(
+                "",
+                tk.END,
+                iid=item["lead_id"],
+                values=(
+                    item.get("title", ""),
+                    item.get("subtitle", ""),
+                    item.get("city", ""),
+                    item.get("phone", ""),
+                    stage_text,
+                    deal_str,
+                    item.get("follow_up_date", "") or "-",
+                )
+            )
+            shown += 1
+
+        self.lbl_crm_count.config(text=f"تعداد سرنخ‌ها: {shown} از {len(self.crm_items_cache)}")
+
+    def _on_crm_lead_selected(self, event=None):
+        selection = self.tree_crm.selection()
+        if not selection:
+            return
+        lead_id = selection[0]
+        item = next((x for x in self.crm_items_cache if x["lead_id"] == lead_id), None)
+        if not item:
+            return
+
+        self.selected_crm_item = item
+
+        # Update header card
+        self.lbl_crm_active_title.config(text=f"{item.get('title', 'نامشخص')} ({item.get('subtitle', '')})")
+        details_sub = f"شرکت: {item.get('company') or '-'} | شهر: {item.get('city') or '-'} | تماس: {item.get('phone') or '-'} | ایمیل: {item.get('email') or '-'}"
+        self.lbl_crm_active_subtitle.config(text=details_sub)
+
+        # Get latest CRM status from DB
+        status = get_lead_crm_status(lead_id, db_path=self.db_path)
+        current_stage = status.get("stage", "new") if status else item.get("stage", "new")
+        assigned = status.get("assigned_to", "واحد مهندسی فروش") if status else item.get("assigned_to", "واحد مهندسی فروش")
+        deal_val = status.get("deal_value", 0) if status else item.get("deal_value", 0)
+        follow_up = status.get("follow_up_date", "") if status else item.get("follow_up_date", "")
+        notes = status.get("notes", "") if status else item.get("notes", "")
+
+        # Set stage dropdown
+        for i, val in enumerate(self.cmb_crm_lead_stage["values"]):
+            if val.startswith(f"{current_stage}:"):
+                self.cmb_crm_lead_stage.current(i)
+                break
+
+        self.ent_crm_assigned.delete(0, tk.END)
+        self.ent_crm_assigned.insert(0, assigned or "")
+
+        self.ent_crm_deal_val.delete(0, tk.END)
+        self.ent_crm_deal_val.insert(0, str(deal_val) if deal_val else "0")
+
+        self.ent_crm_followup_date.delete(0, tk.END)
+        self.ent_crm_followup_date.insert(0, follow_up or "")
+
+        self.txt_crm_lead_notes.delete("1.0", tk.END)
+        if notes:
+            self.txt_crm_lead_notes.insert("1.0", notes)
+
+        # Update contextual sales tip
+        self._update_sales_tip(current_stage)
+
+        # Load activities
+        self._load_crm_activities(lead_id)
+
+        # Update template preview with active lead interpolation
+        self._on_crm_template_selected()
+
+    def _on_crm_stage_dropdown_change(self, event=None):
+        val = self.cmb_crm_lead_stage.get()
+        if ":" in val:
+            stage_code = val.split(":")[0].strip()
+            self._update_sales_tip(stage_code)
+
+    def _update_sales_tip(self, stage_code: str):
+        tip_text = self.CRM_STAGE_TIPS.get(stage_code, "نکته‌ای برای این مرحله ثبت نشده است.")
+        self.lbl_crm_sales_tip.config(text=tip_text)
+
+    def _load_crm_activities(self, lead_id: str):
+        try:
+            self.tree_crm_activities.delete(*self.tree_crm_activities.get_children())
+            acts = get_crm_activities(lead_id, db_path=self.db_path)
+            for a in acts:
+                self.tree_crm_activities.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        a.get("created_at", "")[:19].replace("T", " "),
+                        a.get("activity_type", ""),
+                        a.get("summary", ""),
+                    )
+                )
+        except Exception as e:
+            self._append_log(f"خطا در دریافت تاریخچه فعالیت‌ها: {e}", tag="error")
+
+    def _save_crm_status_changes(self):
+        if not self.selected_crm_item:
+            messagebox.showwarning("انتخاب سرنخ", "لطفاً ابتدا یک سرنخ را از جدول انتخاب نمایید.")
+            return
+
+        lead_id = self.selected_crm_item["lead_id"]
+        lead_type = self.selected_crm_item.get("lead_type", "contact")
+
+        stage_val = self.cmb_crm_lead_stage.get()
+        stage_code = stage_val.split(":")[0].strip() if ":" in stage_val else "new"
+
+        assigned_to = self.ent_crm_assigned.get().strip() or "واحد مهندسی فروش"
+        try:
+            deal_val = int(re.sub(r"[^\d]", "", self.ent_crm_deal_val.get() or "0"))
+        except Exception:
+            deal_val = 0
+
+        follow_up = self.ent_crm_followup_date.get().strip()
+        notes = self.txt_crm_lead_notes.get("1.0", tk.END).strip()
+
+        try:
+            save_lead_crm_status(
+                lead_id=lead_id,
+                stage=stage_code,
+                lead_type=lead_type,
+                assigned_to=assigned_to,
+                deal_value=deal_val,
+                follow_up_date=follow_up,
+                notes=notes,
+                db_path=self.db_path,
+            )
+
+            stage_name = self.CRM_STAGE_LABELS.get(stage_code, stage_code)
+            add_crm_activity(
+                lead_id=lead_id,
+                activity_type="تغییر وضعیت",
+                summary=f"تغییر مرحله فروش به '{stage_name}' | ارزش: {deal_val:,} تومان",
+                details=notes,
+                db_path=self.db_path,
+            )
+
+            self.selected_crm_item["stage"] = stage_code
+            self.selected_crm_item["assigned_to"] = assigned_to
+            self.selected_crm_item["deal_value"] = deal_val
+            self.selected_crm_item["follow_up_date"] = follow_up
+            self.selected_crm_item["notes"] = notes
+
+            self._filter_crm_items()
+            self._load_crm_activities(lead_id)
+            messagebox.showinfo("ذخیره شد", f"وضعیت پرونده {self.selected_crm_item.get('title', '')} با موفقیت به‌روزرسانی شد.")
+        except Exception as e:
+            messagebox.showerror("خطا در ذخیره", f"خطا در ثبت تغییرات پرونده: {e}")
+
+    def _copy_crm_phone(self):
+        if not self.selected_crm_item:
+            return
+        phone = self.selected_crm_item.get("phone", "")
+        if not phone:
+            messagebox.showinfo("اطلاعات تماس", "شماره تلفنی برای این سرنخ ثبت نشده است.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(phone)
+        messagebox.showinfo("کپی شد", f"شماره تماس {phone} در کلیپ‌بورد کپی شد.")
+
+    def _open_crm_source_url(self):
+        if not self.selected_crm_item:
+            return
+        url = self.selected_crm_item.get("source_url", "")
+        if not url:
+            messagebox.showinfo("منبع", "آدرس اینترنتی برای این رکورد موجود نیست.")
+            return
+        first_url = url.split(" | ")[0].strip()
+        try:
+            webbrowser.open(first_url)
+        except Exception as e:
+            messagebox.showerror("خطا", f"امکان باز کردن لینک وجود ندارد: {e}")
+
+    def _on_crm_template_selected(self, event=None):
+        if not hasattr(self, "_crm_templates") or not self._crm_templates:
+            return
+
+        idx = self.cmb_crm_template.current()
+        if idx < 0 or idx >= len(self._crm_templates):
+            return
+
+        tpl = self._crm_templates[idx]
+        name = "محترم"
+        company = "پروژه ساختمانی"
+        project = "ساختمانی"
+
+        if self.selected_crm_item:
+            name = self.selected_crm_item.get("title", "") or "مهندس گرامی"
+            company = self.selected_crm_item.get("company", "") or self.selected_crm_item.get("title", "")
+            project = self.selected_crm_item.get("title", "") or "جاری"
+
+        subj = tpl.get("subject", "").replace("{name}", name).replace("{company}", company).replace("{project}", project)
+        content = tpl.get("content", "").replace("{name}", name).replace("{company}", company).replace("{project}", project)
+
+        self.ent_crm_template_subj.delete(0, tk.END)
+        self.ent_crm_template_subj.insert(0, subj)
+
+        self.txt_crm_template_content.delete("1.0", tk.END)
+        self.txt_crm_template_content.insert("1.0", content)
+
+    def _copy_crm_sms_and_log(self):
+        if not self.selected_crm_item:
+            messagebox.showwarning("انتخاب سرنخ", "لطفاً ابتدا یک سرنخ را انتخاب فرمایید.")
+            return
+
+        text = self.txt_crm_template_content.get("1.0", tk.END).strip()
+        if not text:
+            messagebox.showwarning("متن خالی", "متن پیامک خالی است.")
+            return
+
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+        lead_id = self.selected_crm_item["lead_id"]
+        tpl_title = self.cmb_crm_template.get()
+        add_crm_activity(
+            lead_id=lead_id,
+            activity_type="پیامک",
+            summary=f"کپی متن پیامک به کلیپ‌بورد ({tpl_title[:30]})",
+            details=text[:150],
+            db_path=self.db_path,
+        )
+        self._load_crm_activities(lead_id)
+        messagebox.showinfo("پیامک آماده شد", "متن پیامک در کلیپ‌بورد کپی شد و در تاریخچه پرونده ثبت گردید.\nمی‌توانید آن را در پنل پیامک یا پیام‌رسان جای‌گذاری (Paste) فرمایید.")
+
+    def _send_crm_email_and_log(self):
+        if not self.selected_crm_item:
+            messagebox.showwarning("انتخاب سرنخ", "لطفاً ابتدا یک سرنخ را انتخاب فرمایید.")
+            return
+
+        email = self.selected_crm_item.get("email", "").strip()
+        subj = self.ent_crm_template_subj.get().strip()
+        body = self.txt_crm_template_content.get("1.0", tk.END).strip()
+
+        encoded_subj = urllib.parse.quote(subj)
+        encoded_body = urllib.parse.quote(body)
+        mailto_url = f"mailto:{email}?subject={encoded_subj}&body={encoded_body}"
+
+        try:
+            webbrowser.open(mailto_url)
+            lead_id = self.selected_crm_item["lead_id"]
+            add_crm_activity(
+                lead_id=lead_id,
+                activity_type="ایمیل",
+                summary=f"ارسال ایمیل: {subj[:40]}",
+                details=body[:150],
+                db_path=self.db_path,
+            )
+            self._load_crm_activities(lead_id)
+            messagebox.showinfo("ایمیل باز شد", "نرم‌افزار ایمیل سیستم با متن و موضوع پیش‌فرض باز شد و رویداد در پرونده ثبت گردید.")
+        except Exception as e:
+            messagebox.showerror("خطا در ارسال ایمیل", f"امکان باز کردن نرم‌افزار ایمیل وجود ندارد: {e}")
+
+    def _add_crm_manual_activity(self):
+        if not self.selected_crm_item:
+            messagebox.showwarning("انتخاب سرنخ", "لطفاً ابتدا یک سرنخ را از جدول انتخاب نمایید.")
+            return
+
+        act_type = self.cmb_new_act_type.get()
+        summary = self.ent_new_act_summary.get().strip()
+        if not summary:
+            messagebox.showwarning("شرح خالی", "لطفاً شرح مختصری از فعالیت انجام شده را وارد فرمایید.")
+            return
+
+        lead_id = self.selected_crm_item["lead_id"]
+        try:
+            add_crm_activity(
+                lead_id=lead_id,
+                activity_type=act_type,
+                summary=summary,
+                details="",
+                db_path=self.db_path,
+            )
+            self.ent_new_act_summary.delete(0, tk.END)
+            self._load_crm_activities(lead_id)
+            self._append_log(f"رویداد جدید '{summary}' برای سرنخ {self.selected_crm_item.get('title')} ثبت شد.", tag="success")
+        except Exception as e:
+            messagebox.showerror("خطا", f"خطا در ثبت فعالیت: {e}")
+
+    # ========================== Auto-Update Logic ==========================
+
+    def _check_updates_flow(self, interactive: bool = False):
+        def worker():
+            res = updater.check_for_updates()
+            self.msg_queue.put(("update_check_result", (res, interactive)))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _start_download_and_install(self, download_url: str, asset_name: Optional[str] = None):
+        dl_win = tk.Toplevel(self.root)
+        dl_win.title("دریافت نسخه جدید نوآوران پنجره")
+        dl_win.geometry("420x160")
+        dl_win.resizable(False, False)
+        dl_win.transient(self.root)
+        dl_win.grab_set()
+
+        lbl_head = ttk.Label(dl_win, text="در حال دانلود نسخه جدید از مخزن گیت‌هاب...", font=("Segoe UI", 9, "bold"))
+        lbl_head.pack(pady=(16, 6))
+
+        pbar = ttk.Progressbar(dl_win, orient=tk.HORIZONTAL, mode="determinate", maximum=100)
+        pbar.pack(fill=tk.X, padx=24, pady=8)
+
+        lbl_status = ttk.Label(dl_win, text="در حال برقراری ارتباط با سرور...", font=("Segoe UI", 8))
+        lbl_status.pack(pady=(2, 8))
+
+        def run_download():
+            def on_progress(pct, downloaded, total):
+                self.msg_queue.put(("update_download_progress", (pct, downloaded, total, pbar, lbl_status)))
+
+            try:
+                downloaded_file = updater.download_update(download_url, progress_callback=on_progress)
+                self.msg_queue.put(("update_download_done", (downloaded_file, dl_win)))
+            except Exception as e:
+                self.msg_queue.put(("update_error", (str(e), dl_win)))
+
+        threading.Thread(target=run_download, daemon=True).start()
 
     def _filter_contacts(self):
         query = normalize_persian_text(self.ent_search_contacts.get()).strip().lower()
@@ -1190,6 +1873,7 @@ class ScraperApp:
                     self._load_contacts_from_db()
                     self._load_projects_from_db()
                     self._load_reviews_from_db()
+                    self._load_crm_from_db()
                     title = "توقف عملیات" if is_cancelled else "پایان عملیات"
                     status_msg = "عملیات توسط کاربر متوقف شد." if is_cancelled else "پویش به اتمام رسید."
                     messagebox.showinfo(title, f"{status_msg}\nرکوردهای جدید: {payload.get('new_entities_this_run', 0)}\nمدت زمان: {payload.get('duration_sec', 0)}s")
@@ -1201,6 +1885,7 @@ class ScraperApp:
                     self._load_contacts_from_db()
                     self._load_projects_from_db()
                     self._load_reviews_from_db()
+                    self._load_crm_from_db()
                     messagebox.showinfo("تکمیل بازسازی", f"بازسازی کش کامل شد.\nرکوردهای خام پردازش شده: {payload.get('processed_raw_records', 0)}\nمخاطبین: {payload.get('contacts_exported', 0)}\nپروژه‌ها: {payload.get('projects_exported', 0)}")
 
                 elif msg_type == "benchmark_done":
@@ -1215,6 +1900,55 @@ class ScraperApp:
                     self._set_busy_state(False)
                     self._append_log(f"❌ خطا: {payload}", tag="error")
                     messagebox.showerror("خطا در عملیات", str(payload))
+
+                elif msg_type == "update_check_result":
+                    res, interactive = payload
+                    if res and res.get("has_update"):
+                        msg = (
+                            f"نسخه جدید {res['latest_version']} نوآوران پنجره موجود است!\n"
+                            f"(نسخه فعلی شما: {res['current_version']})\n\n"
+                            f"توضیحات و تغییرات:\n{res.get('release_notes', '')[:350]}\n\n"
+                            f"آیا مایلید نسخه جدید به صورت خودکار دانلود و نصب شود؟"
+                        )
+                        if messagebox.askyesno("به‌روزرسانی خودکار نوآوران پنجره", msg):
+                            self._start_download_and_install(res["download_url"], res.get("asset_name"))
+                    elif interactive:
+                        messagebox.showinfo("برنامه به‌روز است", f"شما در حال حاضر از آخرین نسخه برنامه ({updater.CURRENT_VERSION}) استفاده می‌کنید.")
+
+                elif msg_type == "update_download_progress":
+                    pct, downloaded, total, pbar, lbl_status = payload
+                    try:
+                        pbar["value"] = pct
+                        mb_down = downloaded / (1024 * 1024)
+                        mb_tot = total / (1024 * 1024) if total > 0 else 0
+                        lbl_status.config(text=f"{pct:.1f}% ({mb_down:.1f} MB / {mb_tot:.1f} MB)")
+                    except Exception:
+                        pass
+
+                elif msg_type == "update_download_done":
+                    file_path, dl_win = payload
+                    try:
+                        dl_win.destroy()
+                    except Exception:
+                        pass
+                    self._append_log("✅ نسخه جدید با موفقیت دانلود شد.", tag="success")
+                    if messagebox.askyesno(
+                        "تکمیل دانلود به‌روزرسانی",
+                        "دانلود نسخه جدید با موفقیت به پایان رسید.\nبرنامه جهت جایگزینی فایل اجرایی بسته و نسخه جدید راه‌اندازی خواهد شد.\nآیا مایل به راه‌اندازی نسخه جدید هستید؟"
+                    ):
+                        if getattr(sys, "frozen", False):
+                            updater.apply_update_and_restart(file_path)
+                        else:
+                            messagebox.showinfo("محیط توسعه", f"فایل به‌روزرسانی در مسیر زیر ذخیره شد:\n{file_path}\n(در محیط کد منبع پایتون، جایگزینی خودکار مفسر انجام نمی‌شود)")
+
+                elif msg_type == "update_error":
+                    err_msg, dl_win = payload
+                    try:
+                        dl_win.destroy()
+                    except Exception:
+                        pass
+                    self._append_log(f"خطا در دانلود به‌روزرسانی: {err_msg}", tag="error")
+                    messagebox.showerror("خطا در به‌روزرسانی", f"امکان دریافت فایل به‌روزرسانی وجود نداشت:\n{err_msg}")
 
         except queue.Empty:
             pass
@@ -1333,6 +2067,12 @@ class ScraperApp:
             except Exception:
                 pass
             self._init_job = None
+        if hasattr(self, "_update_check_job") and self._update_check_job:
+            try:
+                self.root.after_cancel(self._update_check_job)
+            except Exception:
+                pass
+            self._update_check_job = None
         try:
             if self.root.winfo_exists():
                 self.root.destroy()

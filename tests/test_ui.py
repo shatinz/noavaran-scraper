@@ -97,12 +97,13 @@ def test_ui_initialization_and_tabs(tk_root, temp_ui_db):
 
     # Check tab tabs exist
     tab_names = [app.notebook.tab(i, "text") for i in range(app.notebook.index("end"))]
-    assert len(tab_names) == 5
+    assert len(tab_names) == 6
     assert any("Crawl" in t or "پویشگر" in t for t in tab_names)
     assert any("Contacts" in t or "مخاطبین" in t for t in tab_names)
     assert any("Active Projects" in t or "پروژه‌ها" in t for t in tab_names)
     assert any("Ambiguous Reviews" in t or "برخوردهای مبهم" in t for t in tab_names)
     assert any("Export" in t or "خروجی‌ها" in t for t in tab_names)
+    assert any("CRM" in t or "مدیریت فروش" in t for t in tab_names)
 
     # Check stats loaded
     assert app.lbl_stat_contacts.cget("text") == "2"

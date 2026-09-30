@@ -13,6 +13,7 @@ hiddenimports = [
     'tkinter.scrolledtext',
     'winreg',
     'autorun',
+    'updater',
 ]
 
 packages_to_collect = [

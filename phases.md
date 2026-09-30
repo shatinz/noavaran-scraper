@@ -18,6 +18,7 @@
 | **5** | Crawler Orchestrator & Benchmark Validation | `[x] Completed` | Persistent frontier crawl queue, budget stop conditions (streak/timeout), and small-batch validation against 10-20 known Isfahan benchmark entities |
 | **6** | Iteration Loop, Precision Tuning & Git Sync | `[x] Completed` | Iterative gap analysis, pattern tuning, Security Sentinel scan, and remote repository push |
 | **7** | Desktop GUI & Windows Standalone Executable | `[x] Completed` | Modern multi-tab Tkinter/TTK desktop UI (`ui.py`), real-time console streaming & controls, search/sort filters, and standalone Windows `.exe` (`dist/NoavaranScraper.exe`) |
+| **8** | Auto-Update Engine & Construction CRM Sales Pipeline | `[x] Completed` | GitHub Releases auto-updater (`updater.py`), atomic runner, full Construction/Facade CRM tab in `ui.py`, Persian sales workflow templates, and `gemini.md` documentation |
 
 ---
 
@@ -130,4 +131,21 @@
   - `[x]` Verify `--noconsole` and frozen base directory resolution for seamless double-click execution
   - `[x]` Harden UI & executable against uninitialized databases, enable SQLite WAL mode, attach parent console and redirected pipes for CLI commands, cancel pending Tk timer jobs on shutdown, and normalize Persian/Arabic queries in live search
   - `[x]` Deep test suite expansion for UI (`tests/test_ui.py`) covering 10 isolated test cases (session Tk fixture, CSV export isolation, clipboard actions, Persian search, ambiguous reviews, and graceful shutdown)
+
+---
+
+## 🎯 Phase 8: Auto-Update Engine & Construction CRM Sales Pipeline
+- **Boundaries**:
+  - Inside: GitHub Releases auto-updater (`updater.py`), atomic Windows runner (`update_runner.bat`), CRM database schema and queries (`database.py`), Sales Pipeline & Activity tab in `ui.py`, Persian architectural facade sales workflows & templates, comprehensive documentation (`gemini.md`), automated unit tests.
+  - Outside: Direct third-party paid SMS API integration (mocked/manual action with copy/mailto).
+- **Tasks**:
+  - `[x]` Develop `updater.py` with GitHub release version check (`shatinz/noavaran-scraper/releases/latest`), binary download streamer, and detached Windows batch launcher (`update_runner.bat`) to bypass WinError 5 / WinError 32 file-lock constraints
+  - `[x]` Add prompt-driven user confirmation before downloading and installing updates with fail-safe rollback
+  - `[x]` Extend SQLite database schema with `crm_lead_status`, `crm_activities`, and `crm_templates` tables
+  - `[x]` Pre-populate rich industry-specific Persian communication templates (thermal-break aluminum, curtain wall, Reynaers/Schüco/Akpa specs, shop drawing requests, quotation follow-ups)
+  - `[x]` Implement CRM Pipeline tab in Tkinter GUI (`ui.py`) featuring pipeline stages, stage tips, activity logging, and 1-click manual SMS copy & Email triggers
+  - `[x]` Document the full auto-update workflow, release process, and architecture in `gemini.md`
+  - `[x]` Write unit tests for CRM functions and updater logic in `tests/test_crm_and_updater.py`
+  - `[x]` Run full test suite (`pytest`) and verify 100% pass (48/48 tests passing)
+  - `[x]` Rebuild standalone Windows executable and distribution zip with PyInstaller
 

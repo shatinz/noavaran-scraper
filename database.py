@@ -139,6 +139,102 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> None:
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS crm_lead_status (
+        lead_id TEXT PRIMARY KEY,
+        lead_type TEXT NOT NULL DEFAULT 'contact',
+        stage TEXT NOT NULL DEFAULT 'new',
+        assigned_to TEXT DEFAULT 'واحد مهندسی فروش',
+        deal_value INTEGER DEFAULT 0,
+        follow_up_date TEXT,
+        notes TEXT,
+        updated_at TEXT NOT NULL
+    );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_stage ON crm_lead_status(stage);")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS crm_activities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lead_id TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        details TEXT,
+        created_at TEXT NOT NULL
+    );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_act_lead ON crm_activities(lead_id);")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS crm_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        subject TEXT,
+        content TEXT NOT NULL,
+        is_default INTEGER DEFAULT 1
+    );
+    """)
+
+    # Seed default templates if empty
+    cur.execute("SELECT count(*) FROM crm_templates")
+    if cur.fetchone()[0] == 0:
+        default_templates = [
+            (
+                "معرفی اولیه و ارسال کاتالوگ مهندسی (پیامک)",
+                "sms",
+                "new",
+                "",
+                "جناب مهندس {name} گرامی، وقت بخیر. شرکت نوآوران پنجره، مجری تخصصی درب و پنجره‌های آلومینیوم ترمال‌بریک و نمای کرتین‌وال در پروژه‌های لوکس کشور. کاتالوگ و نمونه‌کارها: https://noavaranpanjereh.com/catalog - تماس: 03133333333",
+                1
+            ),
+            (
+                "درخواست ارسال نقشه‌های فاز ۲ جهت برآورد مهندسی (پیامک)",
+                "sms",
+                "qualified",
+                "",
+                "مهندس {name} عزیز، پیرو مذاکره در خصوص پروژه {project}، جهت ارسال نقشه فاز ۲ تیپ‌بندی بازشوها برای برآورد دقیق متریال ترمال‌بریک و شیشه لطفا فایل‌ها را به این شماره یا تلگرام ارسال فرمایید. نوآوران پنجره",
+                1
+            ),
+            (
+                "پیگیری پیش‌فاکتور مهندسی ارسالی (پیامک)",
+                "sms",
+                "quoted",
+                "",
+                "جناب مهندس {name} با سلام، پیش‌فاکتور تفکیکی به همراه آنالیز پروفیل و یراق‌آلات پروژه {project} ارسال گردید. در صورت نیاز به جلسه فنی یا بهینه‌سازی بازشوها در خدمتیم. نوآوران پنجره",
+                1
+            ),
+            (
+                "دعوت به بازدید از شوروم و کارخانه نوآوران پنجره (پیامک)",
+                "sms",
+                "negotiation",
+                "",
+                "مهندس {name} گرامی، با افتخار از شما دعوت می‌گردد جهت بررسی مقاطع اختصاصی، سیستم‌های لیفت‌اند‌اسلاید و بازدید از خط تولید مدرن نوآوران پنجره مهمان ما باشید. هماهنگی: 03133333333",
+                1
+            ),
+            (
+                "پیشنهاد همکاری جامع با دفاتر معماری و مهندسان مشاور (ایمیل)",
+                "email",
+                "new",
+                "پیشنهاد همکاری تخصصی نوآوران پنجره در زمینه سیستم‌های درب، پنجره ترمال‌بریک و نمای کرتین‌وال",
+                "جناب آقای/سرکار خانم مهندس {name}\nمدیریت محترم مجموعه {company}\n\nبا سلام و احترام،\nشرکت نوآوران پنجره با بهره‌گیری از خطوط تولید پیشرفته CNC و برترین برندهای پروفیل آلومینیوم اختصاصی و ترمال‌بریک (Akpa، Reynaers، Alumax)، افتخار دارد در زمینه مشاوره، طراحی مهندسی (شاپ‌دراوینگ)، تولید و اجرای سیستم‌های نما و پنجره‌های خاص در کنار شما باشد.\n\nخدمات واحد مهندسی نوآوران پنجره به دفاتر معماری:\n۱. مشاوره فنی و مدلسازی جزییات شاپ دراوینگ پیش از شروع اجرای نما\n۲. محاسبات دقیق استاتیکی، بار باد و لنگر اینرسی مقاطع\n۳. ساخت ماک‌آپ و ارائه دیتیل‌های اجرایی برای سیستم‌های اسلیم و لیفت‌اند‌اسلاید\n۴. بالاترین ضرایب عایق‌بندی صوت و حرارت با تیغه‌های پلی‌آمید استاندارد\n\nخواهشمند است جهت دریافت کاتالوگ جامع و هماهنگی جلسه در دفتر حضرتعالی با واحد مهندسی فروش تماس حاصل فرمایید.\n\nبا تجدید احترام،\nدپارتمان فروش مهندسی نوآوران پنجره\nتلفن: 03133333333 | وب‌سایت: noavaranpanjereh.com",
+                1
+            ),
+            (
+                "ارسال پیش‌فاکتور و دفترچه مشخصات فنی (ایمیل)",
+                "email",
+                "quoted",
+                "ارسال پیش‌فاکتور مهندسی و مشخصات فنی بازشوها - پروژه {project}",
+                "جناب مهندس {name} گرامی،\nبا سلام و احترام،\n\nپیرو نقشه‌ها و مشخصات دریافتی از پروژه {project}، پیش‌فاکتور تفکیکی به همراه مشخصات فنی مقاطع پروفیل، نوارهای آب‌بندی EPDM، شیشه‌های دوجداره لمینت/گاز آرگون و یراق‌آلات اروپایی به پیوست تقدیم می‌گردد.\n\nتیم مهندسی نوآوران پنجره آماده اعمال هرگونه اصلاحیه، بهینه‌سازی اقتصادی مقاطع و برگزاری جلسه فنی در کارخانه یا کارگاه پروژه می‌باشد.\n\nبا احترام،\nمدیریت مهندسی فروش نوآوران پنجره",
+                1
+            )
+        ]
+        cur.executemany("""
+            INSERT INTO crm_templates (title, channel, stage, subject, content, is_default)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, default_templates)
+
     conn.commit()
     conn.close()
 
@@ -442,4 +538,202 @@ def get_cache_stats(db_path: str = DEFAULT_DB_PATH) -> Dict[str, int]:
         "ambiguous_reviews": amb_count,
         "frontier": front_count,
     }
+
+
+def get_lead_crm_status(lead_id: str, db_path: str = DEFAULT_DB_PATH) -> Optional[Dict[str, Any]]:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM crm_lead_status WHERE lead_id = ?", (lead_id,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_lead_crm_status(
+    lead_id: str,
+    stage: str,
+    lead_type: str = "contact",
+    assigned_to: str = "واحد مهندسی فروش",
+    deal_value: int = 0,
+    follow_up_date: str = "",
+    notes: str = "",
+    db_path: str = DEFAULT_DB_PATH
+) -> None:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO crm_lead_status (lead_id, lead_type, stage, assigned_to, deal_value, follow_up_date, notes, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(lead_id) DO UPDATE SET
+            stage = excluded.stage,
+            lead_type = excluded.lead_type,
+            assigned_to = excluded.assigned_to,
+            deal_value = excluded.deal_value,
+            follow_up_date = excluded.follow_up_date,
+            notes = excluded.notes,
+            updated_at = excluded.updated_at
+    """, (
+        lead_id,
+        lead_type,
+        stage,
+        assigned_to,
+        int(deal_value or 0),
+        follow_up_date or "",
+        notes or "",
+        datetime.now().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+
+def add_crm_activity(
+    lead_id: str,
+    activity_type: str,
+    summary: str,
+    details: str = "",
+    db_path: str = DEFAULT_DB_PATH
+) -> int:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO crm_activities (lead_id, activity_type, summary, details, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        lead_id,
+        activity_type,
+        summary,
+        details or "",
+        datetime.now().isoformat()
+    ))
+    act_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return act_id
+
+
+def get_crm_activities(lead_id: str, db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT * FROM crm_activities
+        WHERE lead_id = ?
+        ORDER BY id DESC
+    """, (lead_id,))
+    rows = cur.fetchall()
+    results = [dict(r) for r in rows]
+    conn.close()
+    return results
+
+
+def get_crm_templates(
+    channel: Optional[str] = None,
+    stage: Optional[str] = None,
+    db_path: str = DEFAULT_DB_PATH
+) -> List[Dict[str, Any]]:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    query = "SELECT * FROM crm_templates WHERE 1=1"
+    params: List[Any] = []
+    if channel:
+        query += " AND channel = ?"
+        params.append(channel)
+    if stage:
+        query += " AND (stage = ? OR stage = 'all')"
+        params.append(stage)
+    query += " ORDER BY id ASC"
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+    results = [dict(r) for r in rows]
+    conn.close()
+    return results
+
+
+def save_crm_template(
+    title: str,
+    channel: str,
+    stage: str,
+    content: str,
+    subject: str = "",
+    is_default: int = 0,
+    db_path: str = DEFAULT_DB_PATH
+) -> int:
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO crm_templates (title, channel, stage, subject, content, is_default)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (title, channel, stage, subject or "", content, is_default))
+    tid = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return tid
+
+
+def get_crm_pipeline_items(
+    stage_filter: Optional[str] = None,
+    db_path: str = DEFAULT_DB_PATH
+) -> List[Dict[str, Any]]:
+    """
+    Returns unified list of leads (contacts and projects) merged with their CRM pipeline status.
+    """
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT 
+            c.id AS lead_id,
+            'contact' AS lead_type,
+            COALESCE(c.name, c.company, 'نامشخص') AS title,
+            c.entity_type AS subtitle,
+            c.company,
+            c.city,
+            c.phone,
+            c.email,
+            c.source_url,
+            COALESCE(s.stage, 'new') AS stage,
+            COALESCE(s.assigned_to, 'واحد مهندسی فروش') AS assigned_to,
+            COALESCE(s.deal_value, 0) AS deal_value,
+            COALESCE(s.follow_up_date, '') AS follow_up_date,
+            COALESCE(s.notes, '') AS notes,
+            COALESCE(s.updated_at, c.last_verified) AS updated_at
+        FROM contacts c
+        LEFT JOIN crm_lead_status s ON c.id = s.lead_id
+        
+        UNION ALL
+        
+        SELECT 
+            p.id AS lead_id,
+            'project' AS lead_type,
+            p.project_name AS title,
+            'پروژه ساختمانی' AS subtitle,
+            COALESCE(p.associated_contractors, p.associated_architects, '') AS company,
+            p.city,
+            p.contact_info AS phone,
+            '' AS email,
+            p.source_url,
+            COALESCE(s.stage, 'new') AS stage,
+            COALESCE(s.assigned_to, 'واحد مهندسی فروش') AS assigned_to,
+            COALESCE(s.deal_value, 0) AS deal_value,
+            COALESCE(s.follow_up_date, '') AS follow_up_date,
+            COALESCE(s.notes, '') AS notes,
+            COALESCE(s.updated_at, p.date_found) AS updated_at
+        FROM active_projects p
+        LEFT JOIN crm_lead_status s ON p.id = s.lead_id
+    """)
+
+    rows = cur.fetchall()
+    all_items = [dict(r) for r in rows]
+    conn.close()
+
+    if stage_filter and stage_filter != "all":
+        all_items = [item for item in all_items if item["stage"] == stage_filter]
+
+    return all_items
 
