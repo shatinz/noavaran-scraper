@@ -62,6 +62,130 @@ from crawler import LeadDiscoveryCrawler, SEED_QUERIES
 from validate_benchmark import run_benchmark_audit
 
 
+# ==============================================================================
+# 🎨 Modern Persian Architectural Theme & Fonts (Synchronized with Website)
+# ==============================================================================
+
+def init_persian_fonts() -> str:
+    """
+    Dynamically loads Vazirmatn TTF fonts into Windows GDI font table.
+    Returns the font family name ('Vazirmatn' if successfully loaded, else 'Tahoma' or 'Segoe UI').
+    """
+    font_dirs = [
+        os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "fonts"),
+        os.path.join(get_base_dir(), "assets", "fonts"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts"),
+    ]
+    for fdir in font_dirs:
+        if os.path.isdir(fdir):
+            for fname in ["Vazirmatn-Regular.ttf", "Vazirmatn-Bold.ttf", "Vazirmatn-Medium.ttf"]:
+                fpath = os.path.join(fdir, fname)
+                if os.path.exists(fpath):
+                    try:
+                        ctypes.windll.gdi32.AddFontResourceExW(os.path.abspath(fpath), 0x10, 0)
+                    except Exception:
+                        pass
+    try:
+        import tkinter.font as tkfont
+        families = list(tkfont.families())
+        for f in families:
+            if "vazir" in f.lower():
+                return f
+        if "Tahoma" in families:
+            return "Tahoma"
+        if "Segoe UI" in families:
+            return "Segoe UI"
+    except Exception:
+        pass
+    return "Vazirmatn"
+
+
+ACTIVE_FONT = init_persian_fonts()
+
+# Noavaran Luxury Obsidian & Crimson Architectural Design Tokens
+# Exact match with Noavaran Panjereh website (noavaranpanjereh.com)
+THEME = {
+    "bg_dark": "#0a0002",          # Ink 950 - Main canvas & root
+    "bg_header": "#0d0003",        # Header background
+    "bg_card": "#140005",          # Card surface / container background
+    "bg_card_elevated": "#1c0007", # Elevated surface for toolbars & badges
+    "bg_input": "#180006",         # Text areas, entries, and inputs
+    "bg_tree_row": "#120004",      # Treeview primary row
+    "bg_tree_alt": "#190006",      # Treeview alternating row
+    "bg_tree_sel": "#7b0010",      # Treeview selected row
+    "bg_tip": "#200007",           # Contextual tip box background
+    "border": "#3b0008",           # Subtle dark crimson border
+    "border_card": "#4a000a",      # Distinct card border
+    "border_highlight": "#6b000e", # Active border
+    "border_tip": "#8b0012",       # Tip card border
+    "signal": "#ab0017",           # Signal 500 - Primary brand red
+    "signal_hover": "#c4001a",     # Signal 400 - Button hover
+    "signal_active": "#d1001c",    # Signal 300 - Active / pressed
+    "blood": "#5c000c",            # Secondary dark crimson
+    "blood_hover": "#7a0010",      # Secondary hover
+    "blood_active": "#8b0012",     # Secondary active
+    "text_white": "#fefefe",       # Steel 100 - High contrast text
+    "text_steel": "#e3e4e6",       # Steel 200 - Main body text
+    "text_copper": "#cca699",      # Copper 500 - Warm architectural secondary text
+    "text_copper_light": "#e6c3b8",# Copper 400 - Accent text & headings
+    "text_dim": "#8b7e7b",         # Steel 500 - Muted hints, timestamps
+    "success": "#10b981",          # Emerald 500
+    "warning": "#f59e0b",          # Amber 500
+    "danger": "#ef4444",           # Red 500
+    "info": "#06b6d4",             # Cyan 500
+}
+
+
+def create_modern_button(
+    parent,
+    text: str,
+    command=None,
+    bg: str = THEME["signal"],
+    hover_bg: str = THEME["signal_hover"],
+    active_bg: str = THEME["signal_active"],
+    fg: str = THEME["text_white"],
+    font: Any = None,
+    padx: int = 10,
+    pady: int = 5,
+    width: Optional[int] = None,
+    state: str = tk.NORMAL,
+) -> tk.Button:
+    """Creates a modern flat button with responsive hover feedback."""
+    btn = tk.Button(
+        parent,
+        text=text,
+        command=command,
+        bg=bg,
+        fg=fg,
+        activebackground=active_bg,
+        activeforeground=fg,
+        disabledforeground="#64748b",
+        font=font or (ACTIVE_FONT, 9, "bold"),
+        relief=tk.FLAT,
+        bd=0,
+        padx=padx,
+        pady=pady,
+        cursor="hand2" if state == tk.NORMAL else "arrow",
+        state=state,
+        highlightthickness=0,
+    )
+    if width is not None:
+        btn.config(width=width)
+
+    orig_bg = bg
+    def on_enter(e):
+        if btn["state"] == tk.NORMAL:
+            btn.config(bg=hover_bg)
+
+    def on_leave(e):
+        if btn["state"] == tk.NORMAL:
+            btn.config(bg=orig_bg)
+
+    btn.bind("<Enter>", on_enter)
+    btn.bind("<Leave>", on_leave)
+    return btn
+
+
 class ScraperApp:
     def __init__(self, root: tk.Tk, db_path: str = DEFAULT_DB_PATH, auto_start_crawl: bool = False):
         self.root = root
@@ -128,41 +252,195 @@ class ScraperApp:
     def _configure_styles(self):
         style = ttk.Style()
         try:
-            style.theme_use("vista")
+            style.theme_use("clam")
         except Exception:
-            try:
-                style.theme_use("clam")
-            except Exception:
-                pass
+            pass
 
-        # Configure fonts & colors based on Noavaran website redblack theme
-        # Ink: #0a0002 | Blood: #6b000e | Signal: #ab0017, #d1001c | Steel: #fefefe | Copper: #cca699
-        default_font = ("Segoe UI", 9)
-        header_font = ("Segoe UI", 11, "bold")
-        title_font = ("Segoe UI", 14, "bold")
+        self.font_family = ACTIVE_FONT
+        self.font_default = (ACTIVE_FONT, 9)
+        self.font_bold = (ACTIVE_FONT, 9, "bold")
+        self.font_header = (ACTIVE_FONT, 11, "bold")
+        self.font_title = (ACTIVE_FONT, 13, "bold")
+        self.font_small = (ACTIVE_FONT, 8)
+        self.font_stat_val = (ACTIVE_FONT, 13, "bold")
 
-        style.configure(".", font=default_font)
-        style.configure("Header.TLabel", font=header_font)
-        style.configure("Title.TLabel", font=title_font)
-        style.configure("StatValue.TLabel", font=("Segoe UI", 13, "bold"), foreground="#ab0017")
-        style.configure("StatTitle.TLabel", font=("Segoe UI", 8), foreground="#6b7280")
+        # Root and Popup option database
+        self.root.configure(bg=THEME["bg_dark"])
+        self.root.option_add("*TCombobox*Listbox.background", THEME["bg_input"])
+        self.root.option_add("*TCombobox*Listbox.foreground", THEME["text_white"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", THEME["signal"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", THEME["text_white"])
+        self.root.option_add("*TCombobox*Listbox.font", self.font_default)
+        self.root.option_add("*Menu.background", THEME["bg_card"])
+        self.root.option_add("*Menu.foreground", THEME["text_white"])
+        self.root.option_add("*Menu.selectColor", THEME["signal"])
 
-        # Treeview styling
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
-        style.configure("Treeview", rowheight=26, font=("Segoe UI", 9))
+        # Base ttk style
+        style.configure(".", background=THEME["bg_dark"], foreground=THEME["text_steel"], font=self.font_default)
+
+        # Notebook & Tabs
+        style.configure("TNotebook", background=THEME["bg_dark"], borderwidth=0, tabmargins=[0, 0, 0, 0])
+        style.configure(
+            "TNotebook.Tab",
+            background=THEME["bg_card"],
+            foreground=THEME["text_copper"],
+            font=self.font_bold,
+            padding=[14, 8],
+            borderwidth=0,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", THEME["signal"]), ("active", THEME["bg_card_elevated"])],
+            foreground=[("selected", THEME["text_white"]), ("active", THEME["text_white"])],
+        )
+
+        # Treeview (Modern Luxury Dark Table)
+        style.configure(
+            "Treeview",
+            background=THEME["bg_tree_row"],
+            foreground=THEME["text_white"],
+            fieldbackground=THEME["bg_tree_row"],
+            font=self.font_default,
+            rowheight=29,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", THEME["bg_tree_sel"])],
+            foreground=[("selected", THEME["text_white"])],
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=THEME["bg_card_elevated"],
+            foreground=THEME["text_copper_light"],
+            font=self.font_bold,
+            padding=[6, 6],
+            borderwidth=1,
+            relief="flat",
+        )
+        style.map(
+            "Treeview.Heading",
+            background=[("active", THEME["blood"])],
+            foreground=[("active", THEME["text_white"])],
+        )
+
+        # LabelFrame
+        style.configure(
+            "TLabelframe",
+            background=THEME["bg_card"],
+            bordercolor=THEME["border_card"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "TLabelframe.Label",
+            background=THEME["bg_card"],
+            foreground=THEME["text_copper_light"],
+            font=self.font_bold,
+            padding=[6, 2],
+        )
+
+        # Frames & Labels
+        style.configure("TFrame", background=THEME["bg_dark"])
+        style.configure("Card.TFrame", background=THEME["bg_card"])
+        style.configure("Header.TLabel", font=self.font_header, background=THEME["bg_card"], foreground=THEME["text_white"])
+        style.configure("Title.TLabel", font=self.font_title, background=THEME["bg_dark"], foreground=THEME["text_white"])
+        style.configure("StatValue.TLabel", font=self.font_stat_val, foreground=THEME["signal"])
+        style.configure("StatTitle.TLabel", font=self.font_small, foreground=THEME["text_copper"])
+        style.configure("Muted.TLabel", font=self.font_small, foreground=THEME["text_dim"])
+
+        # Entry, Combobox, Spinbox
+        style.configure(
+            "TEntry",
+            fieldbackground=THEME["bg_input"],
+            foreground=THEME["text_white"],
+            bordercolor=THEME["border"],
+            lightcolor=THEME["border_card"],
+            darkcolor=THEME["border"],
+            padding=[6, 4],
+            font=self.font_default,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=THEME["bg_input"],
+            foreground=THEME["text_white"],
+            background=THEME["bg_card_elevated"],
+            arrowcolor=THEME["text_copper"],
+            bordercolor=THEME["border"],
+            font=self.font_default,
+            padding=[4, 3],
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", THEME["bg_input"])],
+            foreground=[("readonly", THEME["text_white"])],
+            selectbackground=[("readonly", THEME["signal"])],
+            selectforeground=[("readonly", THEME["text_white"])],
+        )
+        style.configure(
+            "TSpinbox",
+            fieldbackground=THEME["bg_input"],
+            foreground=THEME["text_white"],
+            background=THEME["bg_card_elevated"],
+            arrowcolor=THEME["text_copper"],
+            bordercolor=THEME["border"],
+            font=self.font_default,
+        )
+
+        # Scrollbar
+        style.configure(
+            "TScrollbar",
+            background=THEME["bg_card_elevated"],
+            troughcolor=THEME["bg_dark"],
+            bordercolor=THEME["bg_dark"],
+            arrowcolor=THEME["text_copper"],
+            relief="flat",
+        )
+        style.map(
+            "TScrollbar",
+            background=[("active", THEME["signal"]), ("pressed", THEME["signal_active"])],
+        )
+
+        # Progressbar
+        style.configure(
+            "Horizontal.TProgressbar",
+            background=THEME["signal"],
+            troughcolor=THEME["bg_input"],
+            bordercolor=THEME["border"],
+            thickness=12,
+        )
+
+        # Checkbutton
+        style.configure(
+            "TCheckbutton",
+            background=THEME["bg_card"],
+            foreground=THEME["text_steel"],
+            font=self.font_default,
+            indicatorbackground=THEME["bg_input"],
+            indicatorforeground=THEME["signal"],
+        )
+        style.map(
+            "TCheckbutton",
+            background=[("active", THEME["bg_card"])],
+            foreground=[("active", THEME["text_white"])],
+        )
+
+        # Separator
+        style.configure("TSeparator", background=THEME["border"])
 
     def _build_header(self):
         # Red-Black brand header from Noavaran website (Ink 950: #0a0002, Signal: #ab0017 / #d1001c)
-        header_outer = tk.Frame(self.root, bg="#ab0017", height=82)
+        header_outer = tk.Frame(self.root, bg=THEME["signal"], height=86)
         header_outer.pack(side=tk.TOP, fill=tk.X)
         header_outer.pack_propagate(False)
 
-        header_frame = tk.Frame(header_outer, bg="#0a0002")
+        header_frame = tk.Frame(header_outer, bg=THEME["bg_dark"])
         header_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 2))
 
-        # Brand box with Logo
-        brand_box = tk.Frame(header_frame, bg="#0a0002")
-        brand_box.pack(side=tk.LEFT, fill=tk.Y, padx=16, pady=8)
+        # Brand box with Logo (RTL: Placed on the RIGHT side)
+        brand_box = tk.Frame(header_frame, bg=THEME["bg_dark"])
+        brand_box.pack(side=tk.RIGHT, fill=tk.Y, padx=16, pady=8)
 
         # Load official logo
         self._logo_photo = None
@@ -188,64 +466,74 @@ class ScraperApp:
                     pass
 
         if self._logo_photo:
-            logo_lbl = tk.Label(brand_box, image=self._logo_photo, bg="#0a0002")
-            logo_lbl.pack(side=tk.LEFT, padx=(0, 14))
+            logo_lbl = tk.Label(brand_box, image=self._logo_photo, bg=THEME["bg_dark"])
+            logo_lbl.pack(side=tk.RIGHT, padx=(14, 0))
 
-        # Title text container
-        text_box = tk.Frame(brand_box, bg="#0a0002")
-        text_box.pack(side=tk.LEFT, fill=tk.Y)
+        # Title text container (Persian RTL aligned to right)
+        text_box = tk.Frame(brand_box, bg=THEME["bg_dark"])
+        text_box.pack(side=tk.RIGHT, fill=tk.Y)
 
         title_lbl = tk.Label(
             text_box,
             text="نوآوران پنجره | Noavaran Panjereh",
-            font=("Segoe UI", 13, "bold"),
-            fg="#fefefe",
-            bg="#0a0002",
+            font=self.font_title,
+            fg=THEME["text_white"],
+            bg=THEME["bg_dark"],
+            anchor="e",
         )
-        title_lbl.pack(anchor="w")
+        title_lbl.pack(anchor="e")
 
         subtitle_lbl = tk.Label(
             text_box,
             text="سامانه هوشمند استخراج سرنخ‌ها، معماران و پروژه‌های ساختمانی سراسر کشور",
-            font=("Segoe UI", 8),
-            fg="#cca699",
-            bg="#0a0002",
+            font=self.font_small,
+            fg=THEME["text_copper"],
+            bg=THEME["bg_dark"],
+            anchor="e",
         )
-        subtitle_lbl.pack(anchor="w")
+        subtitle_lbl.pack(anchor="e")
 
-        # Right quick stats badges
-        stats_box = tk.Frame(header_frame, bg="#0a0002")
-        stats_box.pack(side=tk.RIGHT, fill=tk.Y, padx=16, pady=8)
+        # Stats badges (RTL: Placed on the LEFT side)
+        stats_box = tk.Frame(header_frame, bg=THEME["bg_dark"])
+        stats_box.pack(side=tk.LEFT, fill=tk.Y, padx=16, pady=8)
+
+        # Quick update check action button with modern styling
+        self.btn_check_update = create_modern_button(
+            stats_box,
+            text=f"🔄 به‌روزرسانی (v{updater.CURRENT_VERSION})",
+            font=self.font_bold,
+            bg=THEME["blood"],
+            hover_bg=THEME["signal"],
+            active_bg=THEME["signal_active"],
+            fg=THEME["text_white"],
+            padx=10,
+            pady=6,
+            command=lambda: self._check_updates_flow(interactive=True),
+        )
+        self.btn_check_update.pack(side=tk.LEFT, padx=(0, 10))
 
         def make_stat_card(parent, title_text, var_name):
-            card = tk.Frame(parent, bg="#1a0004", padx=12, pady=3, relief=tk.SOLID, bd=1, highlightbackground="#4a000a", highlightthickness=1)
+            card = tk.Frame(
+                parent,
+                bg=THEME["bg_card"],
+                padx=12,
+                pady=4,
+                relief=tk.SOLID,
+                bd=1,
+                highlightbackground=THEME["border_card"],
+                highlightthickness=1,
+            )
             card.pack(side=tk.LEFT, padx=4)
-            val_lbl = tk.Label(card, text="0", font=("Segoe UI", 11, "bold"), fg="#fefefe", bg="#1a0004")
+            val_lbl = tk.Label(card, text="0", font=self.font_stat_val, fg=THEME["text_white"], bg=THEME["bg_card"])
             val_lbl.pack()
             setattr(self, var_name, val_lbl)
-            lbl = tk.Label(card, text=title_text, font=("Segoe UI", 7), fg="#cca699", bg="#1a0004")
+            lbl = tk.Label(card, text=title_text, font=self.font_small, fg=THEME["text_copper"], bg=THEME["bg_card"])
             lbl.pack()
 
         make_stat_card(stats_box, "مخاطبین (Contacts)", "lbl_stat_contacts")
         make_stat_card(stats_box, "پروژه‌ها (Projects)", "lbl_stat_projects")
         make_stat_card(stats_box, "رکوردهای خام (Raw)", "lbl_stat_raw")
         make_stat_card(stats_box, "برخوردهای مبهم (Reviews)", "lbl_stat_reviews")
-
-        # Quick update check action button
-        self.btn_check_update = tk.Button(
-            stats_box,
-            text=f"🔄 به‌روزرسانی (v{updater.CURRENT_VERSION})",
-            font=("Segoe UI", 8, "bold"),
-            fg="#fefefe",
-            bg="#3b0007",
-            activebackground="#ab0017",
-            activeforeground="#ffffff",
-            relief=tk.RAISED,
-            padx=8,
-            pady=4,
-            command=lambda: self._check_updates_flow(interactive=True),
-        )
-        self.btn_check_update.pack(side=tk.LEFT, padx=(6, 0))
 
     def _build_notebook(self):
         self.notebook = ttk.Notebook(self.root)
@@ -263,122 +551,193 @@ class ScraperApp:
 
         # Tab 3: Active Projects
         self.tab_projects = ttk.Frame(self.notebook, padding=8)
-        self.notebook.add(self.tab_projects, text=" 🏗️ پروژه‌های فعال (Active Projects) ")
+        self.notebook.add(self.tab_projects, text=" 🏗️ پروژه‌های فعال ساختمانی (Active Projects) ")
         self._setup_projects_tab()
 
-        # Tab 4: Ambiguous Reviews
-        self.tab_reviews = ttk.Frame(self.notebook, padding=8)
-        self.notebook.add(self.tab_reviews, text=" ⚖️ بررسی برخوردهای مبهم (Ambiguous Reviews) ")
-        self._setup_reviews_tab()
+        # Tab 4: Construction CRM Pipeline & Sales Workflow
+        self.tab_crm = ttk.Frame(self.notebook, padding=8)
+        self.notebook.add(self.tab_crm, text=" 💼 خط فروش و مدیریت فروش (CRM) ")
+        self._setup_crm_tab()
 
         # Tab 5: Export & Files
         self.tab_export = ttk.Frame(self.notebook, padding=8)
         self.notebook.add(self.tab_export, text=" 📁 خروجی‌ها و فایل‌ها (Export & Files) ")
         self._setup_export_tab()
 
-        # Tab 6: Construction CRM Pipeline & Sales Workflow
-        self.tab_crm = ttk.Frame(self.notebook, padding=8)
-        self.notebook.add(self.tab_crm, text=" 💼 خط فروش و پیگیری مشتریان (CRM) ")
-        self._setup_crm_tab()
+        # Tab 6: Ambiguous Reviews
+        self.tab_reviews = ttk.Frame(self.notebook, padding=8)
+        self.notebook.add(self.tab_reviews, text=" ⚖️ بررسی برخوردهای مبهم (Ambiguous Reviews) ")
+        self._setup_reviews_tab()
 
     def _setup_crawl_tab(self):
-        # Top Config & Action Pane
+        # Horizontal Split: Console on Left, Configuration & Controls on Right (Persian RTL)
         paned = ttk.PanedWindow(self.tab_crawl, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True)
 
-        left_frame = ttk.LabelFrame(paned, text="تنظیمات و دستورات پویش (Configuration & Execution)", padding=10)
-        paned.add(left_frame, weight=1)
+        # Left: Live Execution Logs
+        log_frame = ttk.LabelFrame(paned, text="لاگ زنده و خروجی کنسول (Live Execution Logs)", padding=6)
+        paned.add(log_frame, weight=3)
 
-        # Config fields in grid
-        ttk.Label(left_frame, text="حداکثر دفعات جستجو (Max Passes):").grid(row=0, column=0, sticky="w", pady=4)
-        self.spn_passes = ttk.Spinbox(left_frame, from_=1, to=100, width=8)
-        self.spn_passes.set(12)
-        self.spn_passes.grid(row=0, column=1, sticky="e", pady=4)
+        # Log toolbar
+        log_tools = ttk.Frame(log_frame)
+        log_tools.pack(fill=tk.X, pady=(0, 4))
 
-        ttk.Label(left_frame, text="محدودیت توقف توالی صفر (Streak Limit):").grid(row=1, column=0, sticky="w", pady=4)
-        self.spn_streak = ttk.Spinbox(left_frame, from_=1, to=20, width=8)
-        self.spn_streak.set(4)
-        self.spn_streak.grid(row=1, column=1, sticky="e", pady=4)
+        self.var_autoscroll = tk.BooleanVar(value=True)
+        chk_scroll = ttk.Checkbutton(log_tools, text="اسکرول خودکار (Auto-scroll)", variable=self.var_autoscroll)
+        chk_scroll.pack(side=tk.RIGHT, padx=4)
 
-        ttk.Label(left_frame, text="بودجه زمانی (ثانیه) (Budget Sec):").grid(row=2, column=0, sticky="w", pady=4)
-        self.spn_budget = ttk.Spinbox(left_frame, from_=30, to=3600, width=8)
-        self.spn_budget.set(180)
-        self.spn_budget.grid(row=2, column=1, sticky="e", pady=4)
+        btn_clear_log = create_modern_button(
+            log_tools,
+            text="🗑️ پاکسازی (Clear)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            fg=THEME["text_copper"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._clear_log,
+        )
+        btn_clear_log.pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(left_frame, text="کانال‌های تلگرام (Telegram Channels):").grid(row=3, column=0, sticky="w", pady=4)
-        self.spn_tg = ttk.Spinbox(left_frame, from_=1, to=10, width=8)
-        self.spn_tg.set(4)
-        self.spn_tg.grid(row=3, column=1, sticky="e", pady=4)
+        btn_copy_log = create_modern_button(
+            log_tools,
+            text="📋 کپی لاگ (Copy)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            fg=THEME["text_copper"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._copy_log,
+        )
+        btn_copy_log.pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(left_frame, text="نتایج به ازای جستجو (Results/Query):").grid(row=4, column=0, sticky="w", pady=4)
-        self.spn_results = ttk.Spinbox(left_frame, from_=1, to=30, width=8)
-        self.spn_results.set(5)
-        self.spn_results.grid(row=4, column=1, sticky="e", pady=4)
+        # Log text area (Deep Obsidian Terminal)
+        self.txt_log = scrolledtext.ScrolledText(
+            log_frame,
+            wrap=tk.WORD,
+            bg="#070002",
+            fg=THEME["text_white"],
+            insertbackground=THEME["signal"],
+            font=("Consolas", 9),
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["signal"],
+        )
+        self.txt_log.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(left_frame, text="کاوش عمیق وب‌سایت‌ها (Max Frontier):").grid(row=5, column=0, sticky="w", pady=4)
-        self.spn_frontier = ttk.Spinbox(left_frame, from_=1, to=50, width=8)
-        self.spn_frontier.set(10)
-        self.spn_frontier.grid(row=5, column=1, sticky="e", pady=4)
+        # Tag configuration for colored logs
+        self.txt_log.tag_configure("info", foreground=THEME["info"])
+        self.txt_log.tag_configure("success", foreground=THEME["success"])
+        self.txt_log.tag_configure("warning", foreground=THEME["warning"])
+        self.txt_log.tag_configure("error", foreground=THEME["danger"])
+        self.txt_log.tag_configure("dim", foreground=THEME["text_dim"])
+
+        # Right: Configuration & Execution Panel (RTL Layout)
+        config_frame = ttk.LabelFrame(paned, text="تنظیمات و دستورات پویش (Configuration & Execution)", padding=10)
+        paned.add(config_frame, weight=2)
+
+        # Form fields grid: Labels on right (col 1), Inputs on left (col 0)
+        form_grid = ttk.Frame(config_frame)
+        form_grid.pack(fill=tk.X, pady=(0, 6))
+
+        def add_config_row(row, label_text, var_name, from_, to_, default_val):
+            ttk.Label(form_grid, text=label_text, anchor="e").grid(row=row, column=1, sticky="e", pady=4, padx=(4, 0))
+            spn = ttk.Spinbox(form_grid, from_=from_, to=to_, width=8)
+            spn.set(default_val)
+            spn.grid(row=row, column=0, sticky="w", pady=4, padx=(0, 4))
+            setattr(self, var_name, spn)
+
+        add_config_row(0, "حداکثر دفعات جستجو (Max Passes):", "spn_passes", 1, 100, 12)
+        add_config_row(1, "محدودیت توقف توالی صفر (Streak Limit):", "spn_streak", 1, 20, 4)
+        add_config_row(2, "بودجه زمانی (ثانیه) (Budget Sec):", "spn_budget", 30, 3600, 180)
+        add_config_row(3, "کانال‌های تلگرام (Telegram Channels):", "spn_tg", 1, 10, 4)
+        add_config_row(4, "نتایج به ازای جستجو (Results/Query):", "spn_results", 1, 30, 5)
+        add_config_row(5, "کاوش عمیق وب‌سایت‌ها (Max Frontier):", "spn_frontier", 1, 50, 10)
+
+        form_grid.grid_columnconfigure(0, weight=1)
+        form_grid.grid_columnconfigure(1, weight=1)
 
         # Action Buttons
-        btn_frame = ttk.Frame(left_frame, padding=(0, 10, 0, 0))
-        btn_frame.grid(row=6, column=0, columnspan=2, sticky="ew")
+        btn_frame = ttk.Frame(config_frame, padding=(0, 6, 0, 0))
+        btn_frame.pack(fill=tk.X)
 
-        self.btn_run = tk.Button(
+        self.btn_run = create_modern_button(
             btn_frame,
             text="▶ شروع پویش خودکار (Start Scraper)",
-            bg="#ab0017",
-            activebackground="#d1001c",
-            fg="#fefefe",
-            font=("Segoe UI", 9, "bold"),
-            relief=tk.RAISED,
-            padx=8,
-            pady=6,
+            bg=THEME["signal"],
+            hover_bg=THEME["signal_hover"],
+            active_bg=THEME["signal_active"],
+            fg=THEME["text_white"],
+            font=self.font_bold,
+            padx=10,
+            pady=7,
             command=self._on_start_crawler,
         )
         self.btn_run.pack(fill=tk.X, pady=3)
 
-        self.btn_stop = tk.Button(
+        self.btn_stop = create_modern_button(
             btn_frame,
             text="⏹ توقف عملیات (Stop Scraper)",
-            bg="#4a000a",
-            activebackground="#6b000e",
-            fg="#fefefe",
-            font=("Segoe UI", 9, "bold"),
+            bg=THEME["blood"],
+            hover_bg=THEME["blood_hover"],
+            active_bg=THEME["blood_active"],
+            fg=THEME["text_white"],
+            font=self.font_bold,
             state=tk.DISABLED,
-            relief=tk.RAISED,
-            padx=8,
-            pady=4,
+            padx=10,
+            pady=5,
             command=self._on_stop_crawler,
         )
         self.btn_stop.pack(fill=tk.X, pady=3)
 
         ttk.Separator(btn_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
-        self.btn_rebuild = ttk.Button(
+        self.btn_rebuild = create_modern_button(
             btn_frame,
             text="🔄 بازسازی و بازپردازش کش (Rebuild Cache)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            active_bg=THEME["blood_hover"],
+            fg=THEME["text_copper_light"],
+            font=self.font_default,
+            padx=8,
+            pady=4,
             command=self._on_rebuild_cache,
         )
         self.btn_rebuild.pack(fill=tk.X, pady=2)
 
-        self.btn_benchmark = ttk.Button(
+        self.btn_benchmark = create_modern_button(
             btn_frame,
             text="🧪 ارزیابی بنچ‌مارک اصفهان (Run Benchmark)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            active_bg=THEME["blood_hover"],
+            fg=THEME["text_copper_light"],
+            font=self.font_default,
+            padx=8,
+            pady=4,
             command=self._on_run_benchmark,
         )
         self.btn_benchmark.pack(fill=tk.X, pady=2)
 
         # Progress bar & status
-        self.crawl_status_lbl = ttk.Label(left_frame, text="آماده به کار (Idle)", font=("Segoe UI", 8, "italic"))
-        self.crawl_status_lbl.grid(row=7, column=0, columnspan=2, sticky="w", pady=(10, 2))
+        self.crawl_status_lbl = ttk.Label(
+            config_frame,
+            text="آماده به کار (Idle)",
+            font=self.font_small,
+            anchor="e",
+        )
+        self.crawl_status_lbl.pack(fill=tk.X, pady=(10, 2))
 
-        self.progressbar = ttk.Progressbar(left_frame, orient=tk.HORIZONTAL, mode="determinate")
-        self.progressbar.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        self.progressbar = ttk.Progressbar(config_frame, orient=tk.HORIZONTAL, mode="determinate")
+        self.progressbar.pack(fill=tk.X, pady=(0, 4))
 
         # Daily Autorun on Windows Startup
-        autorun_card = ttk.LabelFrame(left_frame, text="⏱️ اجرای خودکار روزانه (Daily Startup Autorun)", padding=8)
-        autorun_card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+        autorun_card = ttk.LabelFrame(config_frame, text="⏱️ اجرای خودکار روزانه (Daily Startup Autorun)", padding=8)
+        autorun_card.pack(fill=tk.X, pady=(8, 2))
 
         self.var_autorun = tk.BooleanVar(value=autorun.is_autorun_enabled())
         self.var_autorun_crawl = tk.BooleanVar(value=True)
@@ -389,7 +748,7 @@ class ScraperApp:
             variable=self.var_autorun,
             command=self._on_toggle_autorun,
         )
-        chk_autorun.pack(anchor="w", pady=2)
+        chk_autorun.pack(anchor="e", pady=2)
 
         chk_crawl = ttk.Checkbutton(
             autorun_card,
@@ -397,64 +756,31 @@ class ScraperApp:
             variable=self.var_autorun_crawl,
             command=self._on_toggle_autorun,
         )
-        chk_crawl.pack(anchor="w", pady=2)
+        chk_crawl.pack(anchor="e", pady=2)
 
         is_act = self.var_autorun.get()
         self.lbl_autorun_status = tk.Label(
             autorun_card,
             text="وضعیت: فعال در استارت‌آپ ویندوز (Active)" if is_act else "وضعیت: غیرفعال (Disabled)",
-            font=("Segoe UI", 8, "bold"),
-            fg="#16a34a" if is_act else "#64748b",
+            font=self.font_bold,
+            fg=THEME["success"] if is_act else THEME["text_dim"],
+            bg=THEME["bg_card"],
+            anchor="e",
         )
-        self.lbl_autorun_status.pack(anchor="w", pady=(2, 0))
-
-        # Right: Live Console Output
-        right_frame = ttk.LabelFrame(paned, text="لاگ زنده و خروجی کنسول (Live Execution Logs)", padding=6)
-        paned.add(right_frame, weight=3)
-
-        # Log toolbar
-        log_tools = ttk.Frame(right_frame)
-        log_tools.pack(fill=tk.X, pady=(0, 4))
-
-        self.var_autoscroll = tk.BooleanVar(value=True)
-        chk_scroll = ttk.Checkbutton(log_tools, text="اسکرول خودکار (Auto-scroll)", variable=self.var_autoscroll)
-        chk_scroll.pack(side=tk.LEFT)
-
-        btn_copy_log = ttk.Button(log_tools, text="کپی لاگ (Copy)", command=self._copy_log)
-        btn_copy_log.pack(side=tk.RIGHT, padx=2)
-
-        btn_clear_log = ttk.Button(log_tools, text="پاکسازی لاگ (Clear)", command=self._clear_log)
-        btn_clear_log.pack(side=tk.RIGHT, padx=2)
-
-        # Log text area
-        self.txt_log = scrolledtext.ScrolledText(
-            right_frame,
-            wrap=tk.WORD,
-            bg="#0f172a",
-            fg="#e2e8f0",
-            insertbackground="white",
-            font=("Consolas", 9),
-        )
-        self.txt_log.pack(fill=tk.BOTH, expand=True)
-
-        # Tag configuration for colored logs
-        self.txt_log.tag_configure("info", foreground="#38bdf8")
-        self.txt_log.tag_configure("success", foreground="#4ade80")
-        self.txt_log.tag_configure("warning", foreground="#fbbf24")
-        self.txt_log.tag_configure("error", foreground="#f87171")
-        self.txt_log.tag_configure("dim", foreground="#64748b")
+        self.lbl_autorun_status.pack(anchor="e", pady=(2, 0))
 
     def _setup_contacts_tab(self):
-        # Filter Frame
-        filter_frame = ttk.Frame(self.tab_contacts)
+        # Filter Frame (Persian RTL Layout)
+        filter_frame = tk.Frame(self.tab_contacts, bg=THEME["bg_card"], padx=10, pady=8, relief=tk.SOLID, bd=1, highlightbackground=THEME["border"], highlightthickness=1)
         filter_frame.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(filter_frame, text="جستجو:").pack(side=tk.LEFT, padx=(0, 4))
-        self.ent_search_contacts = ttk.Entry(filter_frame, width=28)
-        self.ent_search_contacts.pack(side=tk.LEFT, padx=(0, 8))
+        # Packed Right-to-Left
+        ttk.Label(filter_frame, text="🔍 جستجو:").pack(side=tk.RIGHT, padx=(4, 2))
+        self.ent_search_contacts = ttk.Entry(filter_frame, width=24)
+        self.ent_search_contacts.pack(side=tk.RIGHT, padx=(0, 10))
         self.ent_search_contacts.bind("<KeyRelease>", lambda e: self._filter_contacts())
 
-        ttk.Label(filter_frame, text="دسته‌بندی:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(filter_frame, text="دسته‌بندی:").pack(side=tk.RIGHT, padx=(4, 2))
         self.cmb_filter_type = ttk.Combobox(
             filter_frame,
             values=["همه (All)", "office", "contractor", "student", "individual"],
@@ -462,10 +788,10 @@ class ScraperApp:
             width=14,
         )
         self.cmb_filter_type.set("همه (All)")
-        self.cmb_filter_type.pack(side=tk.LEFT, padx=(0, 8))
+        self.cmb_filter_type.pack(side=tk.RIGHT, padx=(0, 10))
         self.cmb_filter_type.bind("<<ComboboxSelected>>", lambda e: self._filter_contacts())
 
-        ttk.Label(filter_frame, text="شهر:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(filter_frame, text="شهر:").pack(side=tk.RIGHT, padx=(4, 2))
         self.cmb_filter_city = ttk.Combobox(
             filter_frame,
             values=["همه (All)", "Isfahan", "Tehran", "Other"],
@@ -473,14 +799,24 @@ class ScraperApp:
             width=12,
         )
         self.cmb_filter_city.set("همه (All)")
-        self.cmb_filter_city.pack(side=tk.LEFT, padx=(0, 8))
+        self.cmb_filter_city.pack(side=tk.RIGHT, padx=(0, 10))
         self.cmb_filter_city.bind("<<ComboboxSelected>>", lambda e: self._filter_contacts())
 
-        btn_refresh = ttk.Button(filter_frame, text="🔄 بازخوانی (Refresh)", command=self._load_contacts_from_db)
-        btn_refresh.pack(side=tk.LEFT, padx=4)
+        btn_refresh = create_modern_button(
+            filter_frame,
+            text="🔄 بازخوانی (Refresh)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._load_contacts_from_db,
+        )
+        btn_refresh.pack(side=tk.RIGHT, padx=4)
 
-        self.lbl_contacts_count = ttk.Label(filter_frame, text="در حال بارگذاری...", font=("Segoe UI", 9, "bold"))
-        self.lbl_contacts_count.pack(side=tk.RIGHT, padx=4)
+        self.lbl_contacts_count = ttk.Label(filter_frame, text="در حال بارگذاری...", font=self.font_bold)
+        self.lbl_contacts_count.pack(side=tk.LEFT, padx=4)
 
         # Paned Window for Table + Detail View
         paned = ttk.PanedWindow(self.tab_contacts, orient=tk.VERTICAL)
@@ -494,21 +830,24 @@ class ScraperApp:
         self.tree_contacts = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
 
         col_defs = [
-            ("type", "دسته (Type)", 80),
-            ("name", "نام / عنوان (Name)", 150),
-            ("role", "نقش (Role)", 110),
-            ("company", "شرکت / دفتر (Company)", 150),
-            ("city", "شهر (City)", 75),
-            ("phone", "تلفن (Phone)", 115),
-            ("email", "ایمیل (Email)", 140),
-            ("confidence", "اطمینان", 75),
-            ("social", "سوشال / هندل", 95),
-            ("source", "منبع (Source URL)", 180),
+            ("type", "دسته (Type)", 80, "center"),
+            ("name", "نام / عنوان (Name)", 150, "e"),
+            ("role", "نقش (Role)", 110, "e"),
+            ("company", "شرکت / دفتر (Company)", 150, "e"),
+            ("city", "شهر (City)", 75, "center"),
+            ("phone", "تلفن (Phone)", 115, "center"),
+            ("email", "ایمیل (Email)", 140, "w"),
+            ("confidence", "اطمینان", 75, "center"),
+            ("social", "سوشال / هندل", 95, "center"),
+            ("source", "منبع (Source URL)", 180, "w"),
         ]
 
-        for col_id, col_name, col_w in col_defs:
+        for col_id, col_name, col_w, col_anchor in col_defs:
             self.tree_contacts.heading(col_id, text=col_name, command=lambda c=col_id: self._sort_tree(self.tree_contacts, self.contacts_sort_state, c))
-            self.tree_contacts.column(col_id, width=col_w, minwidth=60)
+            self.tree_contacts.column(col_id, width=col_w, minwidth=60, anchor=col_anchor)
+
+        self.tree_contacts.tag_configure("evenrow", background=THEME["bg_tree_row"], foreground=THEME["text_white"])
+        self.tree_contacts.tag_configure("oddrow", background=THEME["bg_tree_alt"], foreground=THEME["text_white"])
 
         # Scrollbars for treeview
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_contacts.yview)
@@ -528,32 +867,76 @@ class ScraperApp:
         detail_frame = ttk.LabelFrame(paned, text="جزئیات مخاطب انتخاب شده (Selected Contact Details)", padding=8)
         paned.add(detail_frame, weight=1)
 
-        self.txt_contact_detail = tk.Text(detail_frame, height=4, font=("Segoe UI", 9), wrap=tk.WORD, bg="#f8fafc")
+        self.txt_contact_detail = tk.Text(
+            detail_frame,
+            height=4,
+            font=self.font_default,
+            wrap=tk.WORD,
+            bg=THEME["bg_input"],
+            fg=THEME["text_white"],
+            insertbackground=THEME["signal"],
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["signal"],
+        )
         self.txt_contact_detail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         detail_actions = ttk.Frame(detail_frame)
         detail_actions.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
 
-        self.btn_copy_phone = ttk.Button(detail_actions, text="📋 کپی تلفن", command=self._copy_selected_contact_phone)
+        self.btn_copy_phone = create_modern_button(
+            detail_actions,
+            text="📋 کپی تلفن",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            fg=THEME["text_copper_light"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._copy_selected_contact_phone,
+        )
         self.btn_copy_phone.pack(fill=tk.X, pady=2)
 
-        self.btn_copy_email = ttk.Button(detail_actions, text="📋 کپی ایمیل", command=self._copy_selected_contact_email)
+        self.btn_copy_email = create_modern_button(
+            detail_actions,
+            text="📋 کپی ایمیل",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            fg=THEME["text_copper_light"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._copy_selected_contact_email,
+        )
         self.btn_copy_email.pack(fill=tk.X, pady=2)
 
-        self.btn_open_contact_url = ttk.Button(detail_actions, text="🌐 باز کردن لینک منبع", command=self._open_selected_contact_url)
+        self.btn_open_contact_url = create_modern_button(
+            detail_actions,
+            text="🌐 باز کردن لینک منبع",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._open_selected_contact_url,
+        )
         self.btn_open_contact_url.pack(fill=tk.X, pady=2)
 
     def _setup_projects_tab(self):
-        # Filter Frame
-        filter_frame = ttk.Frame(self.tab_projects)
+        # Filter Frame (Persian RTL Layout)
+        filter_frame = tk.Frame(self.tab_projects, bg=THEME["bg_card"], padx=10, pady=8, relief=tk.SOLID, bd=1, highlightbackground=THEME["border"], highlightthickness=1)
         filter_frame.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(filter_frame, text="جستجو:").pack(side=tk.LEFT, padx=(0, 4))
-        self.ent_search_projects = ttk.Entry(filter_frame, width=30)
-        self.ent_search_projects.pack(side=tk.LEFT, padx=(0, 8))
+        # Packed Right-to-Left
+        ttk.Label(filter_frame, text="🔍 جستجو:").pack(side=tk.RIGHT, padx=(4, 2))
+        self.ent_search_projects = ttk.Entry(filter_frame, width=28)
+        self.ent_search_projects.pack(side=tk.RIGHT, padx=(0, 10))
         self.ent_search_projects.bind("<KeyRelease>", lambda e: self._filter_projects())
 
-        ttk.Label(filter_frame, text="شهر:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(filter_frame, text="شهر:").pack(side=tk.RIGHT, padx=(4, 2))
         self.cmb_proj_city = ttk.Combobox(
             filter_frame,
             values=["همه (All)", "Isfahan", "Tehran", "Other"],
@@ -561,14 +944,24 @@ class ScraperApp:
             width=12,
         )
         self.cmb_proj_city.set("همه (All)")
-        self.cmb_proj_city.pack(side=tk.LEFT, padx=(0, 8))
+        self.cmb_proj_city.pack(side=tk.RIGHT, padx=(0, 10))
         self.cmb_proj_city.bind("<<ComboboxSelected>>", lambda e: self._filter_projects())
 
-        btn_refresh = ttk.Button(filter_frame, text="🔄 بازخوانی (Refresh)", command=self._load_projects_from_db)
-        btn_refresh.pack(side=tk.LEFT, padx=4)
+        btn_refresh = create_modern_button(
+            filter_frame,
+            text="🔄 بازخوانی (Refresh)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._load_projects_from_db,
+        )
+        btn_refresh.pack(side=tk.RIGHT, padx=4)
 
-        self.lbl_projects_count = ttk.Label(filter_frame, text="در حال بارگذاری...", font=("Segoe UI", 9, "bold"))
-        self.lbl_projects_count.pack(side=tk.RIGHT, padx=4)
+        self.lbl_projects_count = ttk.Label(filter_frame, text="در حال بارگذاری...", font=self.font_bold)
+        self.lbl_projects_count.pack(side=tk.LEFT, padx=4)
 
         # Paned Window for Table + Detail View
         paned = ttk.PanedWindow(self.tab_projects, orient=tk.VERTICAL)
@@ -581,20 +974,23 @@ class ScraperApp:
         self.tree_projects = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
 
         col_defs = [
-            ("name", "نام پروژه (Project Name)", 180),
-            ("city", "شهر", 75),
-            ("scope", "مقیاس و مشخصات (Scale/Scope)", 140),
-            ("contractors", "پیمانکار(ان) مرتبط", 140),
-            ("architects", "معمار(ان) / مشاور", 140),
-            ("contact", "اطلاعات تماس", 110),
-            ("confidence", "اطمینان", 75),
-            ("date", "تاریخ کشف", 85),
-            ("source", "منبع (Source URL)", 180),
+            ("name", "نام پروژه (Project Name)", 180, "e"),
+            ("city", "شهر", 75, "center"),
+            ("scope", "مقیاس و مشخصات (Scale/Scope)", 140, "e"),
+            ("contractors", "پیمانکار(ان) مرتبط", 140, "e"),
+            ("architects", "معمار(ان) / مشاور", 140, "e"),
+            ("contact", "اطلاعات تماس", 110, "center"),
+            ("confidence", "اطمینان", 75, "center"),
+            ("date", "تاریخ کشف", 85, "center"),
+            ("source", "منبع (Source URL)", 180, "w"),
         ]
 
-        for col_id, col_name, col_w in col_defs:
+        for col_id, col_name, col_w, col_anchor in col_defs:
             self.tree_projects.heading(col_id, text=col_name, command=lambda c=col_id: self._sort_tree(self.tree_projects, self.projects_sort_state, c))
-            self.tree_projects.column(col_id, width=col_w, minwidth=60)
+            self.tree_projects.column(col_id, width=col_w, minwidth=60, anchor=col_anchor)
+
+        self.tree_projects.tag_configure("evenrow", background=THEME["bg_tree_row"], foreground=THEME["text_white"])
+        self.tree_projects.tag_configure("oddrow", background=THEME["bg_tree_alt"], foreground=THEME["text_white"])
 
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_projects.yview)
         hsb = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree_projects.xview)
@@ -613,31 +1009,74 @@ class ScraperApp:
         detail_frame = ttk.LabelFrame(paned, text="مشخصات کامل پروژه (Selected Project Details)", padding=8)
         paned.add(detail_frame, weight=1)
 
-        self.txt_project_detail = tk.Text(detail_frame, height=4, font=("Segoe UI", 9), wrap=tk.WORD, bg="#f8fafc")
+        self.txt_project_detail = tk.Text(
+            detail_frame,
+            height=4,
+            font=self.font_default,
+            wrap=tk.WORD,
+            bg=THEME["bg_input"],
+            fg=THEME["text_white"],
+            insertbackground=THEME["signal"],
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["signal"],
+        )
         self.txt_project_detail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         detail_actions = ttk.Frame(detail_frame)
         detail_actions.pack(side=tk.RIGHT, fill=tk.Y, padx=(8, 0))
 
-        self.btn_copy_proj = ttk.Button(detail_actions, text="📋 کپی مشخصات", command=self._copy_selected_project_info)
+        self.btn_copy_proj = create_modern_button(
+            detail_actions,
+            text="📋 کپی مشخصات",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            fg=THEME["text_copper_light"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._copy_selected_project_info,
+        )
         self.btn_copy_proj.pack(fill=tk.X, pady=2)
 
-        self.btn_open_proj_url = ttk.Button(detail_actions, text="🌐 باز کردن لینک منبع", command=self._open_selected_project_url)
+        self.btn_open_proj_url = create_modern_button(
+            detail_actions,
+            text="🌐 باز کردن لینک منبع",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._open_selected_project_url,
+        )
         self.btn_open_proj_url.pack(fill=tk.X, pady=2)
 
     def _setup_reviews_tab(self):
-        top_frame = ttk.Frame(self.tab_reviews)
+        top_frame = tk.Frame(self.tab_reviews, bg=THEME["bg_card"], padx=10, pady=8, relief=tk.SOLID, bd=1, highlightbackground=THEME["border"], highlightthickness=1)
         top_frame.pack(fill=tk.X, pady=(0, 6))
 
         info_lbl = ttk.Label(
             top_frame,
             text="برخوردهای مبهم در قرنطینه (امتیاز شباهت فازی ۷۰ الی ۸۷ درصد جهت بازبینی کاربر):",
-            font=("Segoe UI", 9, "bold"),
+            font=self.font_bold,
         )
-        info_lbl.pack(side=tk.LEFT)
+        info_lbl.pack(side=tk.RIGHT, padx=4)
 
-        btn_refresh = ttk.Button(top_frame, text="🔄 بازخوانی لاگ بازبینی (Refresh)", command=self._load_reviews_from_db)
-        btn_refresh.pack(side=tk.RIGHT)
+        btn_refresh = create_modern_button(
+            top_frame,
+            text="🔄 بازخوانی لاگ بازبینی (Refresh)",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._load_reviews_from_db,
+        )
+        btn_refresh.pack(side=tk.LEFT, padx=4)
 
         paned = ttk.PanedWindow(self.tab_reviews, orient=tk.VERTICAL)
         paned.pack(fill=tk.BOTH, expand=True)
@@ -649,17 +1088,20 @@ class ScraperApp:
         self.tree_reviews = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
 
         col_defs = [
-            ("id", "شناسه", 50),
-            ("type", "نوع کاندید", 80),
-            ("score", "امتیاز شباهت", 90),
-            ("reason", "دلیل برخورد فازی / بازبینی", 220),
-            ("existing_id", "شناسه موجود در دیتابیس", 160),
-            ("date", "تاریخ لاگ", 140),
+            ("id", "شناسه", 50, "center"),
+            ("type", "نوع کاندید", 80, "center"),
+            ("score", "امتیاز شباهت", 90, "center"),
+            ("reason", "دلیل برخورد فازی / بازبینی", 220, "e"),
+            ("existing_id", "شناسه موجود در دیتابیس", 160, "center"),
+            ("date", "تاریخ لاگ", 140, "center"),
         ]
 
-        for col_id, col_name, col_w in col_defs:
+        for col_id, col_name, col_w, col_anchor in col_defs:
             self.tree_reviews.heading(col_id, text=col_name, command=lambda c=col_id: self._sort_tree(self.tree_reviews, self.reviews_sort_state, c))
-            self.tree_reviews.column(col_id, width=col_w)
+            self.tree_reviews.column(col_id, width=col_w, anchor=col_anchor)
+
+        self.tree_reviews.tag_configure("evenrow", background=THEME["bg_tree_row"], foreground=THEME["text_white"])
+        self.tree_reviews.tag_configure("oddrow", background=THEME["bg_tree_alt"], foreground=THEME["text_white"])
 
         vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_reviews.yview)
         self.tree_reviews.configure(yscrollcommand=vsb.set)
@@ -671,7 +1113,20 @@ class ScraperApp:
         detail_frame = ttk.LabelFrame(paned, text="محتوای خام کاندید مورد بررسی (Candidate Payload JSON)", padding=8)
         paned.add(detail_frame, weight=2)
 
-        self.txt_review_detail = tk.Text(detail_frame, height=8, font=("Consolas", 9), wrap=tk.WORD, bg="#f8fafc")
+        self.txt_review_detail = tk.Text(
+            detail_frame,
+            height=8,
+            font=self.font_default,
+            wrap=tk.WORD,
+            bg=THEME["bg_input"],
+            fg=THEME["text_white"],
+            insertbackground=THEME["signal"],
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["signal"],
+        )
         self.txt_review_detail.pack(fill=tk.BOTH, expand=True)
 
     def _setup_export_tab(self):
@@ -682,52 +1137,53 @@ class ScraperApp:
         c_card = ttk.LabelFrame(main_frame, text="خروجی سرنخ‌ها و مخاطبین (contacts.csv)", padding=12)
         c_card.pack(fill=tk.X, pady=8)
 
-        self.lbl_contacts_file_status = ttk.Label(c_card, text=f"مسیر فایل: {CONTACTS_CSV_PATH}", font=("Segoe UI", 9))
+        self.lbl_contacts_file_status = ttk.Label(c_card, text=f"مسیر فایل: {CONTACTS_CSV_PATH}", font=self.font_default)
         self.lbl_contacts_file_status.pack(anchor="w", pady=2)
 
         btn_box1 = ttk.Frame(c_card)
         btn_box1.pack(anchor="w", pady=6)
 
-        ttk.Button(btn_box1, text="⚡ استخراج سریع (Export Now)", command=self._export_contacts_quick).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_box1, text="💾 ذخیره در مسیر دلخواه... (Save As)", command=self._export_contacts_custom).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_box1, text="📊 باز کردن فایل با اکسل (Open CSV)", command=lambda: self._open_file(CONTACTS_CSV_PATH)).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box1, text="⚡ استخراج سریع (Export Now)", bg=THEME["signal"], hover_bg=THEME["signal_hover"], font=self.font_bold, command=self._export_contacts_quick).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box1, text="💾 ذخیره در مسیر دلخواه... (Save As)", bg=THEME["bg_card_elevated"], hover_bg=THEME["blood"], fg=THEME["text_copper_light"], font=self.font_default, command=self._export_contacts_custom).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box1, text="📊 باز کردن فایل با اکسل (Open CSV)", bg=THEME["bg_card_elevated"], hover_bg=THEME["blood"], fg=THEME["text_copper_light"], font=self.font_default, command=lambda: self._open_file(CONTACTS_CSV_PATH)).pack(side=tk.LEFT, padx=4)
 
         # Card 2: Projects CSV
         p_card = ttk.LabelFrame(main_frame, text="خروجی پروژه‌های فعال ساختمانی (active_projects.csv)", padding=12)
         p_card.pack(fill=tk.X, pady=8)
 
-        self.lbl_projects_file_status = ttk.Label(p_card, text=f"مسیر فایل: {PROJECTS_CSV_PATH}", font=("Segoe UI", 9))
+        self.lbl_projects_file_status = ttk.Label(p_card, text=f"مسیر فایل: {PROJECTS_CSV_PATH}", font=self.font_default)
         self.lbl_projects_file_status.pack(anchor="w", pady=2)
 
         btn_box2 = ttk.Frame(p_card)
         btn_box2.pack(anchor="w", pady=6)
 
-        ttk.Button(btn_box2, text="⚡ استخراج سریع (Export Now)", command=self._export_projects_quick).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_box2, text="💾 ذخیره در مسیر دلخواه... (Save As)", command=self._export_projects_custom).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_box2, text="📊 باز کردن فایل با اکسل (Open CSV)", command=lambda: self._open_file(PROJECTS_CSV_PATH)).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box2, text="⚡ استخراج سریع (Export Now)", bg=THEME["signal"], hover_bg=THEME["signal_hover"], font=self.font_bold, command=self._export_projects_quick).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box2, text="💾 ذخیره در مسیر دلخواه... (Save As)", bg=THEME["bg_card_elevated"], hover_bg=THEME["blood"], fg=THEME["text_copper_light"], font=self.font_default, command=self._export_projects_custom).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box2, text="📊 باز کردن فایل با اکسل (Open CSV)", bg=THEME["bg_card_elevated"], hover_bg=THEME["blood"], fg=THEME["text_copper_light"], font=self.font_default, command=lambda: self._open_file(PROJECTS_CSV_PATH)).pack(side=tk.LEFT, padx=4)
 
         # Card 3: Directory & DB Actions
         d_card = ttk.LabelFrame(main_frame, text="پایگاه داده و پوشه پروژه (Database & Explorer)", padding=12)
         d_card.pack(fill=tk.X, pady=8)
 
         base_d = get_base_dir()
-        self.lbl_db_path = ttk.Label(d_card, text=f"پایگاه داده SQLite: {self.db_path}\nپوشه برنامه: {base_d}", font=("Segoe UI", 9))
+        self.lbl_db_path = ttk.Label(d_card, text=f"پایگاه داده SQLite: {self.db_path}\nپوشه برنامه: {base_d}", font=self.font_default)
         self.lbl_db_path.pack(anchor="w", pady=2)
 
         btn_box3 = ttk.Frame(d_card)
         btn_box3.pack(anchor="w", pady=6)
 
-        ttk.Button(btn_box3, text="📂 باز کردن پوشه فایل‌ها (Open Output Folder)", command=self._open_base_dir).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_box3, text="🔄 استخراج هر دو فایل هم‌زمان (Export All CSVs)", command=self._export_all_now).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box3, text="📂 باز کردن پوشه فایل‌ها (Open Output Folder)", bg=THEME["bg_card_elevated"], hover_bg=THEME["blood"], fg=THEME["text_copper_light"], font=self.font_default, command=self._open_base_dir).pack(side=tk.LEFT, padx=4)
+        create_modern_button(btn_box3, text="🔄 استخراج هر دو فایل هم‌زمان (Export All CSVs)", bg=THEME["signal"], hover_bg=THEME["signal_hover"], font=self.font_bold, command=self._export_all_now).pack(side=tk.LEFT, padx=4)
 
     # ========================== CRM Pipeline Tab ==========================
 
     def _setup_crm_tab(self):
-        # Master CRM Layout
-        top_filter_bar = ttk.Frame(self.tab_crm, padding=(0, 0, 0, 6))
-        top_filter_bar.pack(fill=tk.X)
+        # Master CRM Layout (Persian RTL)
+        top_filter_bar = tk.Frame(self.tab_crm, bg=THEME["bg_card"], padx=10, pady=8, relief=tk.SOLID, bd=1, highlightbackground=THEME["border"], highlightthickness=1)
+        top_filter_bar.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(top_filter_bar, text="مرحله فروش (Stage):", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+        # Packed Right-to-Left
+        ttk.Label(top_filter_bar, text="مرحله فروش (Stage):", font=self.font_bold).pack(side=tk.RIGHT, padx=(4, 2))
         self.cmb_crm_filter_stage = ttk.Combobox(
             top_filter_bar,
             values=[
@@ -741,27 +1197,298 @@ class ScraperApp:
                 "lost: انصراف / رد شده",
             ],
             state="readonly",
-            width=24
+            width=24,
         )
         self.cmb_crm_filter_stage.current(0)
-        self.cmb_crm_filter_stage.pack(side=tk.LEFT, padx=4)
+        self.cmb_crm_filter_stage.pack(side=tk.RIGHT, padx=(0, 10))
         self.cmb_crm_filter_stage.bind("<<ComboboxSelected>>", lambda e: self._filter_crm_items())
 
-        ttk.Label(top_filter_bar, text="جستجو:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(12, 4))
-        self.ent_crm_search = ttk.Entry(top_filter_bar, width=22)
-        self.ent_crm_search.pack(side=tk.LEFT, padx=4)
+        ttk.Label(top_filter_bar, text="جستجو:").pack(side=tk.RIGHT, padx=(4, 2))
+        self.ent_crm_search = ttk.Entry(top_filter_bar, width=20)
+        self.ent_crm_search.pack(side=tk.RIGHT, padx=(0, 10))
         self.ent_crm_search.bind("<KeyRelease>", lambda e: self._filter_crm_items())
 
-        ttk.Button(top_filter_bar, text="🔄 بازخوانی سرنخ‌ها", command=self._load_crm_from_db).pack(side=tk.LEFT, padx=6)
+        btn_refresh = create_modern_button(
+            top_filter_bar,
+            text="🔄 بازخوانی سرنخ‌ها",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._load_crm_from_db,
+        )
+        btn_refresh.pack(side=tk.RIGHT, padx=4)
 
-        self.lbl_crm_count = ttk.Label(top_filter_bar, text="تعداد سرنخ‌ها: 0", font=("Segoe UI", 8, "italic"))
-        self.lbl_crm_count.pack(side=tk.RIGHT, padx=4)
+        self.lbl_crm_count = ttk.Label(top_filter_bar, text="تعداد سرنخ‌ها: 0", font=self.font_bold)
+        self.lbl_crm_count.pack(side=tk.LEFT, padx=4)
 
-        # Horizontal split: Left list of leads, Right work panel
+        # Horizontal split: Workspace on left, Leads list on right (natural RTL flow)
         paned = ttk.PanedWindow(self.tab_crm, orient=tk.HORIZONTAL)
         paned.pack(fill=tk.BOTH, expand=True)
 
-        # Left list
+        # Workspace panel (Left side)
+        right_frame = ttk.Frame(paned)
+        paned.add(right_frame, weight=4)
+
+        # Lead Header Card
+        header_card = tk.Frame(right_frame, bg=THEME["bg_card"], relief=tk.SOLID, bd=1, highlightbackground=THEME["border_card"], highlightthickness=1, padx=12, pady=10)
+        header_card.pack(fill=tk.X, pady=(0, 6))
+
+        self.lbl_crm_active_title = tk.Label(header_card, text="هیچ سرنخی انتخاب نشده است", font=self.font_header, fg=THEME["text_white"], bg=THEME["bg_card"], anchor="e")
+        self.lbl_crm_active_title.pack(anchor="e")
+
+        self.lbl_crm_active_subtitle = tk.Label(header_card, text="یک ردیف از جدول سرنخ‌ها را انتخاب فرمایید", font=self.font_small, fg=THEME["text_copper"], bg=THEME["bg_card"], anchor="e")
+        self.lbl_crm_active_subtitle.pack(anchor="e", pady=(2, 6))
+
+        quick_btns = tk.Frame(header_card, bg=THEME["bg_card"])
+        quick_btns.pack(anchor="e")
+
+        self.btn_crm_copy_phone = create_modern_button(
+            quick_btns,
+            text="📋 کپی شماره",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["blood"],
+            fg=THEME["text_copper_light"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._copy_crm_phone,
+        )
+        self.btn_crm_copy_phone.pack(side=tk.RIGHT, padx=(4, 0))
+
+        self.btn_crm_open_url = create_modern_button(
+            quick_btns,
+            text="🌐 باز کردن لینک منبع",
+            bg=THEME["bg_card_elevated"],
+            hover_bg=THEME["signal"],
+            fg=THEME["text_white"],
+            font=self.font_small,
+            padx=8,
+            pady=3,
+            command=self._open_crm_source_url,
+        )
+        self.btn_crm_open_url.pack(side=tk.RIGHT, padx=4)
+
+        # Sub Notebook for CRM
+        self.crm_notebook = ttk.Notebook(right_frame)
+        self.crm_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # SubTab 1: Pipeline & Stage Details
+        sub_pipeline = ttk.Frame(self.crm_notebook, padding=8)
+        self.crm_notebook.add(sub_pipeline, text="📌 وضعیت و مرحله فروش")
+
+        # Form fields: Labels on right (col 1), inputs on left (col 0)
+        form = ttk.Frame(sub_pipeline)
+        form.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(form, text="مرحله جاری:", anchor="e").grid(row=0, column=1, sticky="e", pady=3, padx=(4, 0))
+        self.cmb_crm_lead_stage = ttk.Combobox(
+            form,
+            values=[
+                "new: سرنخ جدید",
+                "qualified: تماس اولیه و ارزیابی",
+                "drawings: دریافت نقشه‌های فاز ۲",
+                "quoted: صدور پیش‌فاکتور مهندسی",
+                "negotiation: جلسه حضوری و بازدید",
+                "won: عقد قرارداد و تولید",
+                "lost: انصراف / رد شده",
+            ],
+            state="readonly",
+            width=26,
+        )
+        self.cmb_crm_lead_stage.grid(row=0, column=0, sticky="ew", pady=3, padx=4)
+        self.cmb_crm_lead_stage.bind("<<ComboboxSelected>>", self._on_crm_stage_dropdown_change)
+
+        ttk.Label(form, text="کارشناس مسئول:", anchor="e").grid(row=1, column=1, sticky="e", pady=3, padx=(4, 0))
+        self.ent_crm_assigned = ttk.Entry(form, width=26)
+        self.ent_crm_assigned.grid(row=1, column=0, sticky="ew", pady=3, padx=4)
+
+        ttk.Label(form, text="ارزش برآوردی (تومان):", anchor="e").grid(row=2, column=1, sticky="e", pady=3, padx=(4, 0))
+        self.ent_crm_deal_val = ttk.Entry(form, width=26)
+        self.ent_crm_deal_val.grid(row=2, column=0, sticky="ew", pady=3, padx=4)
+
+        ttk.Label(form, text="موعد پیگیری بعدی:", anchor="e").grid(row=3, column=1, sticky="e", pady=3, padx=(4, 0))
+        self.ent_crm_followup_date = ttk.Entry(form, width=26)
+        self.ent_crm_followup_date.grid(row=3, column=0, sticky="ew", pady=3, padx=4)
+
+        ttk.Label(form, text="یادداشت پرونده:", anchor="ne").grid(row=4, column=1, sticky="ne", pady=3, padx=(4, 0))
+        self.txt_crm_lead_notes = tk.Text(
+            form,
+            height=3,
+            font=self.font_default,
+            wrap=tk.WORD,
+            bg=THEME["bg_input"],
+            fg=THEME["text_white"],
+            insertbackground=THEME["signal"],
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["signal"],
+        )
+        self.txt_crm_lead_notes.grid(row=4, column=0, sticky="ew", pady=3, padx=4)
+
+        form.grid_columnconfigure(0, weight=1)
+
+        btn_save_status = create_modern_button(
+            sub_pipeline,
+            text="💾 ذخیره تغییرات مرحله و پرونده",
+            bg=THEME["signal"],
+            hover_bg=THEME["signal_hover"],
+            active_bg=THEME["signal_active"],
+            fg=THEME["text_white"],
+            font=self.font_bold,
+            padx=10,
+            pady=5,
+            command=self._save_crm_status_changes,
+        )
+        btn_save_status.pack(fill=tk.X, pady=(2, 6))
+
+        # Contextual Sales Tip Box (Website Red/Black Architectural Theme)
+        self.tip_frame = tk.Frame(
+            sub_pipeline,
+            bg=THEME["bg_tip"],
+            relief=tk.SOLID,
+            bd=1,
+            highlightbackground=THEME["border_tip"],
+            highlightthickness=1,
+            padx=10,
+            pady=8,
+        )
+        self.tip_frame.pack(fill=tk.BOTH, expand=True, pady=4)
+
+        tip_title = tk.Label(
+            self.tip_frame,
+            text="💡 فوت‌وفن فروش نوآوران پنجره در این مرحله:",
+            font=self.font_bold,
+            fg="#f87171",
+            bg=THEME["bg_tip"],
+            anchor="e",
+        )
+        tip_title.pack(anchor="e")
+
+        self.lbl_crm_sales_tip = tk.Label(
+            self.tip_frame,
+            text="با انتخاب مرحله، نکات و استراتژی‌های فروش مهندسی نوآوران پنجره نمایش داده می‌شود.",
+            font=self.font_small,
+            fg=THEME["text_copper"],
+            bg=THEME["bg_tip"],
+            justify=tk.RIGHT,
+            anchor="e",
+            wraplength=380,
+        )
+        self.lbl_crm_sales_tip.pack(anchor="e", pady=(4, 0), fill=tk.BOTH, expand=True)
+
+        # SubTab 2: SMS & Email Center
+        sub_comm = ttk.Frame(self.crm_notebook, padding=8)
+        self.crm_notebook.add(sub_comm, text="💬 مرکز پیامک و ایمیل (ارتباط سریع)")
+
+        ttk.Label(sub_comm, text="انتخاب الگوی ارتباطی:", font=self.font_bold, anchor="e").pack(anchor="e")
+        self.cmb_crm_template = ttk.Combobox(sub_comm, state="readonly", width=40)
+        self.cmb_crm_template.pack(fill=tk.X, pady=(2, 6))
+        self.cmb_crm_template.bind("<<ComboboxSelected>>", self._on_crm_template_selected)
+
+        ttk.Label(sub_comm, text="موضوع ایمیل (فقط برای ایمیل):", font=self.font_small, anchor="e").pack(anchor="e")
+        self.ent_crm_template_subj = ttk.Entry(sub_comm)
+        self.ent_crm_template_subj.pack(fill=tk.X, pady=(1, 4))
+
+        ttk.Label(sub_comm, text="متن ارسالی (قابل ویرایش قبل از کپی یا ارسال):", font=self.font_small, anchor="e").pack(anchor="e")
+        self.txt_crm_template_content = scrolledtext.ScrolledText(
+            sub_comm,
+            height=6,
+            font=self.font_default,
+            wrap=tk.WORD,
+            bg=THEME["bg_input"],
+            fg=THEME["text_white"],
+            insertbackground=THEME["signal"],
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=THEME["border"],
+            highlightcolor=THEME["signal"],
+        )
+        self.txt_crm_template_content.pack(fill=tk.BOTH, expand=True, pady=(2, 6))
+
+        comm_actions = ttk.Frame(sub_comm)
+        comm_actions.pack(fill=tk.X)
+
+        btn_copy_sms = create_modern_button(
+            comm_actions,
+            text="📱 کپی متن پیامک و ثبت در سوابق",
+            bg="#0f766e",
+            hover_bg="#115e59",
+            fg=THEME["text_white"],
+            font=self.font_bold,
+            padx=8,
+            pady=4,
+            command=self._copy_crm_sms_and_log,
+        )
+        btn_copy_sms.pack(side=tk.RIGHT, padx=(4, 0))
+
+        btn_send_mail = create_modern_button(
+            comm_actions,
+            text="✉️ باز کردن ایمیل (Mailto) و ثبت در سوابق",
+            bg=THEME["signal"],
+            hover_bg=THEME["signal_hover"],
+            fg=THEME["text_white"],
+            font=self.font_bold,
+            padx=8,
+            pady=4,
+            command=self._send_crm_email_and_log,
+        )
+        btn_send_mail.pack(side=tk.RIGHT, padx=4)
+
+        # SubTab 3: Activity Timeline
+        sub_timeline = ttk.Frame(self.crm_notebook, padding=8)
+        self.crm_notebook.add(sub_timeline, text="📜 تاریخچه و لاگ فعالیت‌ها")
+
+        act_frame = ttk.Frame(sub_timeline)
+        act_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+
+        act_cols = ("date", "type", "summary")
+        self.tree_crm_activities = ttk.Treeview(act_frame, columns=act_cols, show="headings", height=5)
+        self.tree_crm_activities.heading("date", text="تاریخ و زمان")
+        self.tree_crm_activities.heading("type", text="نوع فعالیت")
+        self.tree_crm_activities.heading("summary", text="شرح رویداد")
+        self.tree_crm_activities.column("date", width=120, anchor="center")
+        self.tree_crm_activities.column("type", width=90, anchor="center")
+        self.tree_crm_activities.column("summary", width=220, anchor="e")
+
+        self.tree_crm_activities.tag_configure("evenrow", background=THEME["bg_tree_row"], foreground=THEME["text_white"])
+        self.tree_crm_activities.tag_configure("oddrow", background=THEME["bg_tree_alt"], foreground=THEME["text_white"])
+
+        act_vsb = ttk.Scrollbar(act_frame, orient=tk.VERTICAL, command=self.tree_crm_activities.yview)
+        self.tree_crm_activities.configure(yscrollcommand=act_vsb.set)
+        self.tree_crm_activities.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        act_vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Add Activity Form (RTL)
+        add_box = ttk.LabelFrame(sub_timeline, text="ثبت فعالیت جدید در پرونده", padding=6)
+        add_box.pack(fill=tk.X)
+
+        act_in_f = ttk.Frame(add_box)
+        act_in_f.pack(fill=tk.X, pady=2)
+
+        ttk.Label(act_in_f, text="نوع:").pack(side=tk.RIGHT, padx=(4, 2))
+        self.cmb_new_act_type = ttk.Combobox(
+            act_in_f,
+            values=["تماس تلفنی", "پیامک ارسالی", "ایمیل ارسالی", "جلسه حضوری", "بازدید کارگاه", "صدور پیش‌فاکتور", "یادداشت داخلی"],
+            state="readonly",
+            width=14,
+        )
+        self.cmb_new_act_type.current(0)
+        self.cmb_new_act_type.pack(side=tk.RIGHT, padx=2)
+
+        ttk.Label(act_in_f, text="خلاصه:").pack(side=tk.RIGHT, padx=(6, 2))
+        self.ent_new_act_summary = ttk.Entry(act_in_f, width=28)
+        self.ent_new_act_summary.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=2)
+
+        btn_add_act = create_modern_button(act_in_f, text="➕ ثبت فعالیت", bg=THEME["signal"], hover_bg=THEME["signal_hover"], font=self.font_bold, padx=8, pady=3, command=self._add_crm_manual_activity)
+        btn_add_act.pack(side=tk.LEFT, padx=(4, 0))
+
+        # Leads list panel (Right side)
         left_frame = ttk.Frame(paned)
         paned.add(left_frame, weight=3)
 
@@ -769,17 +1496,20 @@ class ScraperApp:
         self.tree_crm = ttk.Treeview(left_frame, columns=cols, show="headings", selectmode="browse")
 
         col_defs = [
-            ("title", "عنوان سرنخ / پروژه / شخص", 160),
-            ("type", "نوع", 80),
-            ("city", "شهر", 70),
-            ("phone", "شماره تماس", 105),
-            ("stage", "مرحله فروش", 130),
-            ("deal", "ارزش (تومان)", 85),
-            ("follow_up", "موعد پیگیری", 85),
+            ("title", "عنوان سرنخ / پروژه / شخص", 160, "e"),
+            ("type", "نوع", 80, "center"),
+            ("city", "شهر", 70, "center"),
+            ("phone", "شماره تماس", 105, "center"),
+            ("stage", "مرحله فروش", 130, "e"),
+            ("deal", "ارزش (تومان)", 85, "center"),
+            ("follow_up", "موعد پیگیری", 85, "center"),
         ]
-        for c_id, c_name, c_w in col_defs:
+        for c_id, c_name, c_w, c_anchor in col_defs:
             self.tree_crm.heading(c_id, text=c_name, command=lambda c=c_id: self._sort_tree(self.tree_crm, self.crm_sort_state, c))
-            self.tree_crm.column(c_id, width=c_w, minwidth=60)
+            self.tree_crm.column(c_id, width=c_w, minwidth=60, anchor=c_anchor)
+
+        self.tree_crm.tag_configure("evenrow", background=THEME["bg_tree_row"], foreground=THEME["text_white"])
+        self.tree_crm.tag_configure("oddrow", background=THEME["bg_tree_alt"], foreground=THEME["text_white"])
 
         vsb = ttk.Scrollbar(left_frame, orient=tk.VERTICAL, command=self.tree_crm.yview)
         hsb = ttk.Scrollbar(left_frame, orient=tk.HORIZONTAL, command=self.tree_crm.xview)
@@ -793,216 +1523,22 @@ class ScraperApp:
 
         self.tree_crm.bind("<<TreeviewSelect>>", self._on_crm_lead_selected)
 
-        # Right Action & Management Panel
-        right_frame = ttk.Frame(paned)
-        paned.add(right_frame, weight=4)
-
-        # Lead Header Card
-        header_card = tk.Frame(right_frame, bg="#1a0004", relief=tk.SOLID, bd=1, highlightbackground="#4a000a", highlightthickness=1, padx=10, pady=8)
-        header_card.pack(fill=tk.X, pady=(0, 6))
-
-        self.lbl_crm_active_title = tk.Label(header_card, text="هیچ سرنخی انتخاب نشده است", font=("Segoe UI", 11, "bold"), fg="#fefefe", bg="#1a0004")
-        self.lbl_crm_active_title.pack(anchor="w")
-
-        self.lbl_crm_active_subtitle = tk.Label(header_card, text="یک ردیف از جدول سمت چپ را انتخاب فرمایید", font=("Segoe UI", 8), fg="#cca699", bg="#1a0004")
-        self.lbl_crm_active_subtitle.pack(anchor="w", pady=(2, 4))
-
-        quick_btns = tk.Frame(header_card, bg="#1a0004")
-        quick_btns.pack(anchor="w")
-
-        self.btn_crm_copy_phone = ttk.Button(quick_btns, text="📋 کپی شماره", command=self._copy_crm_phone)
-        self.btn_crm_copy_phone.pack(side=tk.LEFT, padx=(0, 4))
-
-        self.btn_crm_open_url = ttk.Button(quick_btns, text="🌐 باز کردن لینک منبع", command=self._open_crm_source_url)
-        self.btn_crm_open_url.pack(side=tk.LEFT, padx=4)
-
-        # Sub Notebook for CRM
-        self.crm_notebook = ttk.Notebook(right_frame)
-        self.crm_notebook.pack(fill=tk.BOTH, expand=True)
-
-        # SubTab 1: Pipeline & Stage Details
-        sub_pipeline = ttk.Frame(self.crm_notebook, padding=8)
-        self.crm_notebook.add(sub_pipeline, text="📌 وضعیت و مرحله فروش")
-
-        # Form fields
-        form = ttk.Frame(sub_pipeline)
-        form.pack(fill=tk.X, pady=(0, 6))
-
-        ttk.Label(form, text="مرحله جاری:").grid(row=0, column=0, sticky="w", pady=3)
-        self.cmb_crm_lead_stage = ttk.Combobox(
-            form,
-            values=[
-                "new: سرنخ جدید",
-                "qualified: تماس اولیه و ارزیابی",
-                "drawings: دریافت نقشه‌های فاز ۲",
-                "quoted: صدور پیش‌فاکتور مهندسی",
-                "negotiation: جلسه حضوری و بازدید",
-                "won: عقد قرارداد و تولید",
-                "lost: انصراف / رد شده",
-            ],
-            state="readonly",
-            width=26
-        )
-        self.cmb_crm_lead_stage.grid(row=0, column=1, sticky="ew", pady=3, padx=4)
-        self.cmb_crm_lead_stage.bind("<<ComboboxSelected>>", self._on_crm_stage_dropdown_change)
-
-        ttk.Label(form, text="کارشناس مسئول:").grid(row=1, column=0, sticky="w", pady=3)
-        self.ent_crm_assigned = ttk.Entry(form, width=26)
-        self.ent_crm_assigned.grid(row=1, column=1, sticky="ew", pady=3, padx=4)
-
-        ttk.Label(form, text="ارزش برآوردی (تومان):").grid(row=2, column=0, sticky="w", pady=3)
-        self.ent_crm_deal_val = ttk.Entry(form, width=26)
-        self.ent_crm_deal_val.grid(row=2, column=1, sticky="ew", pady=3, padx=4)
-
-        ttk.Label(form, text="موعد پیگیری بعدی:").grid(row=3, column=0, sticky="w", pady=3)
-        self.ent_crm_followup_date = ttk.Entry(form, width=26)
-        self.ent_crm_followup_date.grid(row=3, column=1, sticky="ew", pady=3, padx=4)
-
-        ttk.Label(form, text="یادداشت پرونده:").grid(row=4, column=0, sticky="nw", pady=3)
-        self.txt_crm_lead_notes = tk.Text(form, height=3, font=("Segoe UI", 9), wrap=tk.WORD, bg="#f8fafc")
-        self.txt_crm_lead_notes.grid(row=4, column=1, sticky="ew", pady=3, padx=4)
-
-        form.grid_columnconfigure(1, weight=1)
-
-        btn_save_status = tk.Button(
-            sub_pipeline,
-            text="💾 ذخیره تغییرات مرحله و پرونده",
-            bg="#ab0017",
-            activebackground="#d1001c",
-            fg="#fefefe",
-            font=("Segoe UI", 9, "bold"),
-            relief=tk.RAISED,
-            padx=8,
-            pady=4,
-            command=self._save_crm_status_changes,
-        )
-        btn_save_status.pack(fill=tk.X, pady=(2, 6))
-
-        # Contextual Sales Tip Box
-        self.tip_frame = tk.Frame(sub_pipeline, bg="#fdf2f2", relief=tk.SOLID, bd=1, highlightbackground="#fca5a5", highlightthickness=1, padx=8, pady=6)
-        self.tip_frame.pack(fill=tk.BOTH, expand=True, pady=4)
-
-        tip_title = tk.Label(self.tip_frame, text="💡 فوت‌وفن فروش نوآوران پنجره در این مرحله:", font=("Segoe UI", 9, "bold"), fg="#991b1b", bg="#fdf2f2")
-        tip_title.pack(anchor="w")
-
-        self.lbl_crm_sales_tip = tk.Label(
-            self.tip_frame,
-            text="با انتخاب مرحله، نکات و استراتژی‌های فروش مهندسی نوآوران پنجره نمایش داده می‌شود.",
-            font=("Segoe UI", 8),
-            fg="#7f1d1d",
-            bg="#fdf2f2",
-            justify=tk.LEFT,
-            wraplength=380,
-        )
-        self.lbl_crm_sales_tip.pack(anchor="w", pady=(4, 0), fill=tk.BOTH, expand=True)
-
-        # SubTab 2: SMS & Email Center
-        sub_comm = ttk.Frame(self.crm_notebook, padding=8)
-        self.crm_notebook.add(sub_comm, text="💬 مرکز پیامک و ایمیل (ارتباط سریع)")
-
-        ttk.Label(sub_comm, text="انتخاب الگوی ارتباطی:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        self.cmb_crm_template = ttk.Combobox(sub_comm, state="readonly", width=40)
-        self.cmb_crm_template.pack(fill=tk.X, pady=(2, 6))
-        self.cmb_crm_template.bind("<<ComboboxSelected>>", self._on_crm_template_selected)
-
-        ttk.Label(sub_comm, text="موضوع ایمیل (فقط برای ایمیل):", font=("Segoe UI", 8)).pack(anchor="w")
-        self.ent_crm_template_subj = ttk.Entry(sub_comm)
-        self.ent_crm_template_subj.pack(fill=tk.X, pady=(1, 4))
-
-        ttk.Label(sub_comm, text="متن ارسالی (قابل ویرایش قبل از کپی یا ارسال):", font=("Segoe UI", 8)).pack(anchor="w")
-        self.txt_crm_template_content = scrolledtext.ScrolledText(sub_comm, height=6, font=("Segoe UI", 9), wrap=tk.WORD, bg="#f8fafc")
-        self.txt_crm_template_content.pack(fill=tk.BOTH, expand=True, pady=(2, 6))
-
-        comm_actions = ttk.Frame(sub_comm)
-        comm_actions.pack(fill=tk.X)
-
-        btn_copy_sms = tk.Button(
-            comm_actions,
-            text="📱 کپی متن پیامک و ثبت در سوابق",
-            bg="#0f766e",
-            activebackground="#115e59",
-            fg="#fefefe",
-            font=("Segoe UI", 8, "bold"),
-            padx=6,
-            pady=4,
-            command=self._copy_crm_sms_and_log,
-        )
-        btn_copy_sms.pack(side=tk.LEFT, padx=(0, 4))
-
-        btn_send_mail = tk.Button(
-            comm_actions,
-            text="✉️ باز کردن ایمیل (Mailto) و ثبت در سوابق",
-            bg="#1d4ed8",
-            activebackground="#1e40af",
-            fg="#fefefe",
-            font=("Segoe UI", 8, "bold"),
-            padx=6,
-            pady=4,
-            command=self._send_crm_email_and_log,
-        )
-        btn_send_mail.pack(side=tk.LEFT, padx=4)
-
-        # SubTab 3: Activity Timeline
-        sub_timeline = ttk.Frame(self.crm_notebook, padding=8)
-        self.crm_notebook.add(sub_timeline, text="📜 تاریخچه و لاگ فعالیت‌ها")
-
-        # Treeview of activities
-        act_frame = ttk.Frame(sub_timeline)
-        act_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
-
-        act_cols = ("date", "type", "summary")
-        self.tree_crm_activities = ttk.Treeview(act_frame, columns=act_cols, show="headings", height=5)
-        self.tree_crm_activities.heading("date", text="تاریخ و زمان")
-        self.tree_crm_activities.heading("type", text="نوع فعالیت")
-        self.tree_crm_activities.heading("summary", text="شرح رویداد")
-        self.tree_crm_activities.column("date", width=120)
-        self.tree_crm_activities.column("type", width=90)
-        self.tree_crm_activities.column("summary", width=220)
-
-        act_vsb = ttk.Scrollbar(act_frame, orient=tk.VERTICAL, command=self.tree_crm_activities.yview)
-        self.tree_crm_activities.configure(yscrollcommand=act_vsb.set)
-        self.tree_crm_activities.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        act_vsb.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Add Activity Form
-        add_box = ttk.LabelFrame(sub_timeline, text="ثبت فعالیت جدید در پرونده", padding=6)
-        add_box.pack(fill=tk.X)
-
-        act_in_f = ttk.Frame(add_box)
-        act_in_f.pack(fill=tk.X, pady=2)
-
-        ttk.Label(act_in_f, text="نوع:").pack(side=tk.LEFT, padx=(0, 2))
-        self.cmb_new_act_type = ttk.Combobox(
-            act_in_f,
-            values=["تماس تلفنی", "پیامک ارسالی", "ایمیل ارسالی", "جلسه حضوری", "بازدید کارگاه", "صدور پیش‌فاکتور", "یادداشت داخلی"],
-            state="readonly",
-            width=14
-        )
-        self.cmb_new_act_type.current(0)
-        self.cmb_new_act_type.pack(side=tk.LEFT, padx=2)
-
-        ttk.Label(act_in_f, text="خلاصه:").pack(side=tk.LEFT, padx=(6, 2))
-        self.ent_new_act_summary = ttk.Entry(act_in_f, width=28)
-        self.ent_new_act_summary.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
-
-        ttk.Button(act_in_f, text="➕ ثبت فعالیت", command=self._add_crm_manual_activity).pack(side=tk.LEFT, padx=(4, 0))
-
     def _build_statusbar(self):
-        status_frame = tk.Frame(self.root, bg="#0a0002", height=26, relief=tk.FLAT, bd=0)
+        status_frame = tk.Frame(self.root, bg=THEME["bg_dark"], height=28, relief=tk.FLAT, bd=0)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Subtle top accent line
-        top_line = tk.Frame(status_frame, bg="#4a000a", height=1)
+        # Subtle top accent line (brand crimson)
+        top_line = tk.Frame(status_frame, bg=THEME["border"], height=1)
         top_line.pack(side=tk.TOP, fill=tk.X)
 
-        inner_status = tk.Frame(status_frame, bg="#0a0002")
+        inner_status = tk.Frame(status_frame, bg=THEME["bg_dark"])
         inner_status.pack(side=tk.TOP, fill=tk.X, expand=True)
 
-        self.lbl_status_left = tk.Label(inner_status, text="آماده به کار (Ready)", font=("Segoe UI", 8), bg="#0a0002", fg="#e3e4e6")
-        self.lbl_status_left.pack(side=tk.LEFT, padx=12, pady=2)
+        self.lbl_status_left = tk.Label(inner_status, text=f"Noavaran Scraper | DB: {os.path.basename(self.db_path)}", font=self.font_small, bg=THEME["bg_dark"], fg=THEME["text_dim"])
+        self.lbl_status_left.pack(side=tk.LEFT, padx=12, pady=3)
 
-        self.lbl_status_right = tk.Label(inner_status, text=f"Noavaran Scraper | DB: {os.path.basename(self.db_path)}", font=("Segoe UI", 8), bg="#0a0002", fg="#cca699")
-        self.lbl_status_right.pack(side=tk.RIGHT, padx=12, pady=2)
+        self.lbl_status_right = tk.Label(inner_status, text="آماده به کار (Ready)", font=self.font_small, bg=THEME["bg_dark"], fg=THEME["text_copper"], anchor="e")
+        self.lbl_status_right.pack(side=tk.RIGHT, padx=12, pady=3)
 
     # ========================== Data Loading & Stats ==========================
 
@@ -1416,18 +1952,31 @@ class ScraperApp:
     def _start_download_and_install(self, download_url: str, asset_name: Optional[str] = None):
         dl_win = tk.Toplevel(self.root)
         dl_win.title("دریافت نسخه جدید نوآوران پنجره")
-        dl_win.geometry("420x160")
+        dl_win.geometry("440x180")
+        dl_win.configure(bg=THEME["bg_dark"])
         dl_win.resizable(False, False)
         dl_win.transient(self.root)
         dl_win.grab_set()
 
-        lbl_head = ttk.Label(dl_win, text="در حال دانلود نسخه جدید از مخزن گیت‌هاب...", font=("Segoe UI", 9, "bold"))
-        lbl_head.pack(pady=(16, 6))
+        lbl_head = tk.Label(
+            dl_win,
+            text="در حال دانلود نسخه جدید از مخزن گیت‌هاب...",
+            font=self.font_header,
+            fg=THEME["text_white"],
+            bg=THEME["bg_dark"],
+        )
+        lbl_head.pack(pady=(18, 6))
 
         pbar = ttk.Progressbar(dl_win, orient=tk.HORIZONTAL, mode="determinate", maximum=100)
         pbar.pack(fill=tk.X, padx=24, pady=8)
 
-        lbl_status = ttk.Label(dl_win, text="در حال برقراری ارتباط با سرور...", font=("Segoe UI", 8))
+        lbl_status = tk.Label(
+            dl_win,
+            text="در حال برقراری ارتباط با سرور...",
+            font=self.font_small,
+            fg=THEME["text_copper"],
+            bg=THEME["bg_dark"],
+        )
         lbl_status.pack(pady=(2, 8))
 
         def run_download():
