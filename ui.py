@@ -61,6 +61,16 @@ class ScraperApp:
         self.root.geometry("1120x760")
         self.root.minsize(960, 620)
 
+        # Window icon
+        icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "icon.ico")
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(get_base_dir(), "icon.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.root.iconbitmap(icon_path)
+            except Exception:
+                pass
+
         # Worker thread & communication queue
         self.worker_thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()

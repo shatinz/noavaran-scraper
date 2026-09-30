@@ -1,12 +1,40 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+from PyInstaller.utils.hooks import collect_all
 
+datas = [('icon.ico', '.')]
+binaries = []
+hiddenimports = [
+    'sqlite3',
+    'tkinter',
+    'tkinter.ttk',
+    'tkinter.messagebox',
+    'tkinter.filedialog',
+    'tkinter.scrolledtext',
+]
+
+packages_to_collect = [
+    'ddgs',
+    'primp',
+    'rapidfuzz',
+    'pydantic',
+    'certifi',
+    'bs4',
+    'requests',
+]
+
+for pkg in packages_to_collect:
+    d, b, h = collect_all(pkg)
+    datas += d
+    binaries += b
+    hiddenimports += h
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=['ddgs', 'rapidfuzz', 'pydantic', 'bs4', 'requests', 'sqlite3', 'tkinter'],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -30,9 +58,10 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    disable_windowed_traceback=True,
+    disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='icon.ico',
 )

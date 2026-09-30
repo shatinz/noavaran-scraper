@@ -242,3 +242,30 @@ Harvested data was cross-validated against 15 hand-picked Isfahan entities (Raza
 - **SAST Scan (Bandit)**: 0 High, 0 Medium issues across all Python source files.
 - **Secret Scan**: 0 leaked API keys, tokens, or credentials.
 - **Dependency Audit**: Clean pinned packages in `requirements.txt`.
+
+---
+
+## 💻 10. Installing & Running on Another Machine (نصب روی سیستم دیگر)
+
+The executable is 100% self-contained and pre-packaged with Python runtime, C/Rust network extensions (`primp`, `rapidfuzz`), SQLite, SSL root certificates (`certifi`), Tkinter, and application icons. **No Python installation or command-line experience is required.**
+
+### Method 1: 1-Click Quick Installer (Recommended)
+1. Extract the release package: `NoavaranScraper-Windows-x64.zip`
+2. Double-click `install.bat`.
+3. The installer automatically:
+   - Installs the software to `%LOCALAPPDATA%\Programs\NoavaranScraper` (**no administrator rights required**).
+   - Generates a **Desktop shortcut** with the custom window icon.
+   - Adds **Noavaran Panjereh Scraper** to the **Windows Start Menu**.
+   - Configures `uninstall.bat` for clean 1-click removal.
+
+### Method 2: Portable Mode (Zero Installation)
+- Double-click `NoavaranScraper.exe` directly from any folder, USB drive, or Desktop.
+- The app runs immediately in portable mode and writes the database and exported CSVs locally.
+- If placed in a read-only directory (e.g. `C:\Program Files`), it safely redirects writable storage to `%LOCALAPPDATA%\NoavaranScraper` without permission errors.
+
+### First-Time Windows SmartScreen Note
+On fresh Windows 10/11 machines, Windows Defender SmartScreen may display: *"Windows protected your PC"*.
+1. Click **More info**.
+2. Click **Run anyway**.
+*(This standard prompt occurs for newly packaged software that has not yet accumulated Microsoft cloud reputation).*
+

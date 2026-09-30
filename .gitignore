@@ -11,4 +11,6 @@ env/
 venv/
 build/
 dist/data/
+dist/NoavaranScraper-Package/
+dist/*.zip
 

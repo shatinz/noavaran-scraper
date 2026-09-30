@@ -18,8 +18,25 @@ from models import ContactEntity, ActiveProject
 
 
 def get_base_dir() -> str:
+    """
+    Returns the writable directory for database and exports.
+    If running as a frozen executable:
+      - Uses the folder containing the .exe if writable (e.g. portable mode).
+      - If read-only (e.g. installed in Program Files), safely falls back to %LOCALAPPDATA%/NoavaranScraper.
+    """
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        exe_dir = os.path.dirname(sys.executable)
+        try:
+            test_path = os.path.join(exe_dir, f".perm_check_{os.getpid()}.tmp")
+            with open(test_path, "w") as f:
+                f.write("ok")
+            os.remove(test_path)
+            return exe_dir
+        except (PermissionError, OSError):
+            appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+            fallback_dir = os.path.join(appdata, "NoavaranScraper")
+            os.makedirs(fallback_dir, exist_ok=True)
+            return fallback_dir
     return os.path.dirname(os.path.abspath(__file__))
 
 

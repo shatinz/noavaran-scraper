@@ -1,12 +1,24 @@
+import os
 import argparse
 import sys
 import json
+import io
+
+# Ensure SSL certificates bundle is discoverable by requests/primp/urllib in frozen .exe
+if getattr(sys, "frozen", False):
+    try:
+        import certifi
+        ca_path = certifi.where()
+        if os.path.exists(ca_path):
+            os.environ.setdefault("SSL_CERT_FILE", ca_path)
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", ca_path)
+    except Exception:
+        pass
+
 from crawler import LeadDiscoveryCrawler
 from exporters import export_all_csvs
 from validate_benchmark import run_benchmark_audit
 from database import get_connection, DEFAULT_DB_PATH, init_db, get_cache_stats
-
-import io
 
 def _setup_console_io():
     # If run in windowed mode from terminal or redirected to a pipe, attach handles so CLI output works
@@ -156,4 +168,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        if len(sys.argv) == 1 or (len(sys.argv) > 1 and sys.argv[1] == "ui"):
+            import traceback
+            err_msg = traceback.format_exc()
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror("Noavaran Scraper Error", f"Application failed to launch:\n\n{err_msg}")
+            except Exception:
+                pass
+        raise
