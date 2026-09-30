@@ -269,3 +269,12 @@ def test_clean_person_name_strips_trailing_clauses():
     assert clean_person_name("مهندس بهزاد نوید نیا را به ایشان و خ") == "مهندس بهزاد نوید نیا"
     assert clean_person_name("مهندس علی محجوب رئیس و اعضای هیئت رئ") == "مهندس علی محجوب"
 
+
+def test_crawler_imports_and_uses_normalize_city():
+    """Verify crawler module defines and uses normalize_city properly without NameError."""
+    import crawler
+    assert hasattr(crawler, "normalize_city")
+    assert callable(crawler.normalize_city)
+    assert crawler.normalize_city("دفتر معماری در شیراز") == "Shiraz"
+
+

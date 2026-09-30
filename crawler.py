@@ -1,6 +1,9 @@
 import re
 import time
 import uuid
+import sqlite3
+import json
+import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -16,7 +19,22 @@ from dedup import DeduplicationEngine
 from harvesters.search_engine import SearchHarvester
 from harvesters.telegram_scraper import TelegramScraper, DEFAULT_TELEGRAM_CHANNELS
 from harvesters.web_extractor import TargetedWebExtractor
-from harvesters.text_parser import is_excluded_domain, is_excluded_project
+from harvesters.text_parser import (
+    is_excluded_domain,
+    is_excluded_project,
+    extract_phones,
+    extract_emails,
+    extract_social_handles,
+    clean_party_candidate,
+)
+from geo_filter import classify_geography
+from normalizer import (
+    clean_entity_name,
+    clean_person_name,
+    normalize_city,
+    normalize_phone,
+    GENERIC_TITLES,
+)
 from exporters import export_all_csvs
 
 # Balanced interleaved queries across all 4 target categories and geographic tiers
@@ -233,14 +251,10 @@ class LeadDiscoveryCrawler:
                         body = item.get("body", "")
                         title = item.get("title", "")
                         combined = f"{title} {body}"
-                        from harvesters.text_parser import extract_phones, extract_emails, extract_social_handles
                         ph = extract_phones(combined)
                         em = extract_emails(combined)
                         hd = extract_social_handles(combined)
                         if ph or em or hd:
-                            from models import ContactEntity
-                            from geo_filter import classify_geography
-                            from normalizer import clean_entity_name, GENERIC_TITLES
                             geo_tier = classify_geography(combined)
                             title_parts = [p.strip() for p in re.split(r'[-–—|؛:،]', title) if p.strip()]
                             valid_parts = [p for p in title_parts if clean_entity_name(p).lower() not in GENERIC_TITLES and p.lower() not in GENERIC_TITLES]
@@ -379,19 +393,6 @@ class LeadDiscoveryCrawler:
         Re-process all pre-merge raw records using the latest normalization,
         extraction, and deduplication logic, then re-export CSVs.
         """
-        import sqlite3
-        import json
-        import os
-        from harvesters.text_parser import (
-            extract_phones,
-            extract_emails,
-            extract_social_handles,
-            clean_party_candidate,
-            is_excluded_project,
-        )
-        from geo_filter import classify_geography
-        from normalizer import clean_entity_name, clean_person_name, normalize_city, normalize_phone, GENERIC_TITLES
-
         def emit(msg: str) -> None:
             print(msg)
             if log_fn:
